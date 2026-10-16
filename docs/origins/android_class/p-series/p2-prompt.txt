@@ -1,0 +1,29 @@
+You are working in the Android repo at <repo> (Food Roulette, Kotlin/Jetpack Compose, package edu.android.wut2eat). The current git branch is feat/place-details-call.
+
+1. First read AGENTS.md in the repo root and follow its rules. Never read, print, or copy local.properties.
+2. Then read the spec file: <scratchpad>\specs\p2-place-details.md
+3. Implement exactly that spec. Edit or create only the files it names:
+   Main sources (app/src/main/...):
+   - java/edu/android/wut2eat/domain/PlaceDetails.kt (new)
+   - java/edu/android/wut2eat/domain/Format.kt
+   - java/edu/android/wut2eat/data/PlaceDetailsSource.kt (new)
+   - java/edu/android/wut2eat/data/PlacesSearch.kt
+   - java/edu/android/wut2eat/di/AppContainer.kt
+   - java/edu/android/wut2eat/ui/detail/DetailUiState.kt
+   - java/edu/android/wut2eat/ui/detail/DetailViewModel.kt
+   - java/edu/android/wut2eat/ui/detail/DetailScreen.kt
+   - java/edu/android/wut2eat/ui/detail/DetailPage.kt
+   - java/edu/android/wut2eat/ui/AppRoot.kt
+   - java/edu/android/wut2eat/MainActivity.kt
+   - res/values/strings.xml
+   JVM tests (app/src/test/java/edu/android/wut2eat/...):
+   - testing/FakePlaceDetailsSource.kt (new)
+   - ui/detail/DetailViewModelTest.kt
+   - data/CachedPlaceDetailsTest.kt (new)
+   - domain/FormatTest.kt
+   Instrumentation tests (app/src/androidTest/java/edu/android/wut2eat/...):
+   - ui/detail/DetailScreenTest.kt
+   - ui/AppFlowTest.kt
+   Read the existing neighbouring files first and match their style (including MultiplayerScreen.kt, BookingScreen.kt, MeScreen.kt and testing/TestDoubles.kt before writing the new AppFlowTest test). Do not touch any other file: no Gradle files, AGENTS.md, README.md, ProGuard rules, AndroidManifest.xml, and no changes to the booking, multiplayer, share, or me pages. Do not change the nearby-search FIELDS or SearchNearbyRequest in PlacesSearch.kt. Do not reformat unrelated code. Do not delete, move, or add the untracked Screenshot_*.png files in the repo root.
+4. Do not commit, push, create branches, or open a pull request. Do not run Gradle; the build and tests will be run separately.
+5. Finish by listing every file you created or changed, with a one-line summary of each change.

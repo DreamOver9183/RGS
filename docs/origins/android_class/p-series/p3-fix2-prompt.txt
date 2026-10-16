@@ -1,0 +1,21 @@
+The build and all tests pass now. The reviewer asks for exactly these changes and nothing else:
+
+a. app/src/main/java/edu/android/wut2eat/data/PlacesSearch.kt, in toShops: if a period's close day cannot be mapped to java.time.DayOfWeek, drop that whole period (return null from the periods.mapNotNull) instead of setting close = null. A null close must only mean a real 24-hour period from Places (period.close == null). Also remove the now-unused `import edu.android.wut2eat.domain.TYPES`.
+
+b. app/src/main/java/edu/android/wut2eat/ui/RouletteViewModel.kt:
+   - In init, apply the loaded filter only if the state's filter is still the default, like the radius guard:
+     `_state.update { if (it.filter == ShopFilter()) it.copy(filter = savedFilter) else it }`
+   - In setFilter, return early when the new filter equals the current one (`_state.value.filter`), before saving or clearing the result. Keep the existing spinning check.
+
+c. app/src/test/java/edu/android/wut2eat/ui/RouletteViewModelTest.kt:
+   - In testSpin_withFilter_passesQueryAndFiltersResults, put the non-matching shop (rating 3.9, shopFail) FIRST in fakeShopSearch.shopsToReturn, i.e. listOf(shopFail, shopPass), so that with rand = { 0.0 } the test would fail if filtering did not happen.
+   - Add one small test: after a draw reaches Phase.Result, calling setFilter with the same filter as the current one keeps the Result (phase stays Result and result is unchanged). Use the existing helpers and the same pattern as the neighbouring tests. Skip this test only if it is not easy with the existing helpers.
+
+d. Remove the extra blank line at end of file in these files (each file must end with exactly one newline after the last closing brace / last line):
+   - app/src/main/java/edu/android/wut2eat/data/SettingsStore.kt
+   - app/src/main/java/edu/android/wut2eat/data/store/StoreCodec.kt
+   - app/src/main/java/edu/android/wut2eat/ui/Panel.kt
+   - app/src/test/java/edu/android/wut2eat/data/store/StoreCodecTest.kt
+   - app/src/test/java/edu/android/wut2eat/ui/RouletteViewModelTest.kt
+
+Change nothing else, do not reformat other code, and do not touch any other file. Do not commit, do not switch branches, do not run Gradle. Finish by listing the files you changed in this step with a one-line summary each.

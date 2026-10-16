@@ -1,0 +1,35 @@
+You are working in the Android repo at <repo> (Food Roulette, Kotlin/Jetpack Compose, package edu.android.wut2eat). The current git branch is feat/home-filters.
+
+1. First read AGENTS.md in the repo root and follow its rules. Never read, print, or copy local.properties.
+2. Then read the spec file: <scratchpad>\specs\p3-filters.md
+3. Phases 1 and 2 are already in the code: shop-name cleanup (PlacesSearch.toShops already calls cleanShopName) and Place Details on the detail page (PlacesSearch already has details(...) and DETAIL_FIELDS, and AppContainer.create() already creates exactly one PlacesSearch instance, used for details). Keep all of that working; reuse that same PlacesSearch instance for search.
+4. Implement exactly that spec. Edit or create only the files it names:
+   Main sources (app/src/main/...):
+   - java/edu/android/wut2eat/domain/OpeningHours.kt (new)
+   - java/edu/android/wut2eat/domain/Filter.kt (new)
+   - java/edu/android/wut2eat/domain/Places.kt (Shop: add rating, priceLevel, openNow with defaults)
+   - java/edu/android/wut2eat/domain/Sample.kt (ShopSearch typealias with SearchQuery, drawShop query/accept params)
+   - java/edu/android/wut2eat/data/PlacesSearch.kt
+   - java/edu/android/wut2eat/data/store/StoreCodec.kt (StoredFilter, encodeFilter, decodeFilter; do NOT add the three new fields to StoredShop)
+   - java/edu/android/wut2eat/data/SettingsStore.kt (FilterStore, DataStoreFilterStore, MemoryFilterStore)
+   - java/edu/android/wut2eat/di/AppContainer.kt
+   - java/edu/android/wut2eat/ui/RouletteViewModel.kt
+   - java/edu/android/wut2eat/ui/FilterSheet.kt (new)
+   - java/edu/android/wut2eat/ui/Panel.kt
+   - java/edu/android/wut2eat/ui/RouletteScreen.kt
+   - res/values/strings.xml
+   - Only if needed to compile against the new ShopSearch signature: java/edu/android/wut2eat/ui/multi/MultiplayerViewModel.kt and java/edu/android/wut2eat/data/NearbyPoolCache.kt. Multiplayer behaviour must not change (no query/accept arguments are passed there).
+   JVM tests (app/src/test/java/edu/android/wut2eat/...):
+   - ui/RouletteViewModelTest.kt (FakeShopSearch takes a third SearchQuery parameter and records queries; customSearch takes three parameters; plus the new filter tests)
+   - domain/OpeningHoursTest.kt (new)
+   - domain/FilterTest.kt (new)
+   - domain/SampleTest.kt
+   - data/store/StoreCodecTest.kt
+   - ui/multi/MultiplayerViewModelTest.kt: only the customSearch lambda (line ~94, `{ pt, _ -> ...}`) must become three parameters.
+   Instrumentation tests (app/src/androidTest/java/edu/android/wut2eat/...):
+   - testing/TestDoubles.kt, ui/AppFlowTest.kt, ui/nav/AppNavigationTest.kt, ui/RouletteScreenTest.kt, ui/RouletteResultActionsTest.kt: change every two-parameter ShopSearch lambda (`{ _, _ -> ... }`) to three parameters (`{ _, _, _ -> ... }`). Nothing else in these files.
+   - ui/FilterSheetTest.kt (new; tests the stateless FilterSheetContent; call performScrollTo() before every click).
+   Before finishing, grep app/src for every ShopSearch lambda, `customSearch`, and `fakeShopSearch`/`FakeShopSearch` use to make sure nothing still uses the old two-parameter form.
+   Read the existing neighbouring files first and match their style (AddShopScreen.kt for FilterChip styling, the existing radius handling in RouletteViewModel/SettingsStore for the filter store, the existing StoreCodec DTOs and StoreCodecTest, and existing androidTest files for Compose test style). Do not touch any other file: no Gradle files, AGENTS.md, README.md, ProGuard rules, AndroidManifest.xml, and no changes to the detail, booking, share, me, favorites, or favorites-draw pages. Do not reformat unrelated code. Do not delete, move, or add the untracked Screenshot_*.png files in the repo root.
+5. Do not commit, push, create or switch branches, or open a pull request. Do not run Gradle; the build and tests will be run separately.
+6. Finish by listing every file you created or changed, with a one-line summary of each change.

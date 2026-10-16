@@ -1,0 +1,10 @@
+feat(home): add rating, price, open-now, and type filters
+
+Add a filter sheet next to Home's radius with a minimum rating, price
+levels, an open-now switch, and four restaurant categories. Categories
+become the nearby search's includedPrimaryTypes; rating, price, and
+open-now request the Enterprise filter fields only while one of them is
+on, and shops missing the data are excluded. The filter is saved in
+DataStore (filter_v1) and applies only to Home's draw.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "language": { "docs": "zh-TW", "commits": "zh-TW", "prompts": "zh-TW" },
+  "knowledge_base": ["AGENTS.md"],
+  "remote": "origin",
+  "base_branch": "main",
+  "docs_dir": "docs/rgs",
+  "worktree_root": null,
+  "worktree_copy": ["local.properties"],
+  "shell": "bash",
+  "env": { "JAVA_HOME": "C:/Program Files/Android/Android Studio/jbr" },
+  "secrets": {
+    "deny_read": [".env", ".env.*", "*.pem", "*.key", "*_KEY_*", "*.keystore", "*.jks", "local.properties"],
+    "patterns": []
+  },
+  "commands": {
+    "quick": ["./gradlew testDebugUnitTest"],
+    "verify": ["./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease"]
+  },
+  "agy": {
+    "implementer": { "models": ["gemini-3.8-flash-high"], "timeout_s": 3600, "allow_commands": [] },
+    "reviewer": {
+      "models": ["gemini-3.8-flash-high"],
+      "timeout_s": 1800,
+      "lenses": ["security", "correctness", "architecture", "spec-tests-docs"]
+    },
+    "batch": { "models": ["gemini-3.8-flash-low"], "workers": 8, "batch_size": 40, "timeout_s": 900 },
+    "digest": { "models": ["gemini-3.8-flash-high"], "workers": 4, "chunk_lines": 800, "timeout_s": 900 },
+    "max_fix_rounds": 4,
+    "fresh_after_input_tokens": 400000
+  },
+  "pr": { "post_review_comment": true }
+}

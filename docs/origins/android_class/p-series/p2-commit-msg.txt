@@ -1,0 +1,27 @@
+feat(detail): show Google place details and add phone ordering
+
+The detail page showed fakeExtras demo data for every shop. For Places
+shops it now fetches Place Details once (fetchPlace with DETAIL_FIELDS)
+and shows the real rating, price level, opening hours, editorial
+summary, and service flags, falling back to "Oops，店家沒有提供該資訊"
+for anything missing, with a retry after a failed fetch. Seed and
+custom shops keep the labelled demo content and never call Places.
+
+Add domain PlaceDetails/PlaceService and telUri, data
+PlaceDetailsSource with an in-process LRU CachedPlaceDetails (successes
+only), and wire it through AppContainer (default source always fails,
+so tests need no Places).
+
+The detail page's 預訂 button becomes 電話訂餐: enabled only when the
+shop has a phone, it opens the dialer via ACTION_DIAL (no CALL_PHONE
+permission). Booking is now reached only from the multiplayer winner
+card. Nearby search fields are unchanged; Place Details bills at
+Enterprise + Atmosphere per uncached detail open.
+
+Tests: FakePlaceDetailsSource, CachedPlaceDetailsTest, telUri, new
+DetailViewModel cases, DetailScreenTest Places cases, and AppFlowTest
+moving end-to-end booking to the multiplayer winner card. Update
+AGENTS.md and README (132 JVM tests in 39 classes, 30 instrumentation
+tests in 13 classes).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,0 +1,13 @@
+You are working in the Android repo at <repo> (Food Roulette, Kotlin/Jetpack Compose, package edu.android.wut2eat). The current git branch is feat/shop-name-cleanup.
+
+1. First read AGENTS.md in the repo root and follow its rules. Never read, print, or copy local.properties.
+2. Then read the spec file: <scratchpad>\specs\p1-shop-name.md
+3. Implement exactly that spec. Edit or create only the files it names:
+   - app/src/main/java/edu/android/wut2eat/domain/ShopName.kt (new)
+   - app/src/main/java/edu/android/wut2eat/data/PlacesSearch.kt
+   - app/src/main/java/edu/android/wut2eat/data/store/StoreCodec.kt
+   - app/src/test/java/edu/android/wut2eat/domain/ShopNameTest.kt (new)
+   - app/src/test/java/edu/android/wut2eat/data/store/StoreCodecTest.kt
+   Read the existing neighbouring files first and match their style. Do not touch any other file (no UI, string resources, Gradle files, AGENTS.md, README.md). Do not reformat unrelated code. Do not delete, move, or add the untracked Screenshot_*.png files in the repo root.
+4. Do not commit, push, create branches, or open a pull request. Do not run Gradle; the build and tests will be run separately.
+5. Finish by listing every file you created or changed, with a one-line summary of each change.

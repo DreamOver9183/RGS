@@ -1,0 +1,5 @@
+# Review context for PR #7 (milestone M6: add-restaurant page + share page)
+- Specification: m6-spec.md (sections 1–9) plus m6-fix-1.md (review round 1: test call sites, map touch detector on the Initial pass, per-field error clearing + double-save test, winner card layout, share strings, blank lines).
+- PR #6 (M5) is merged into main, so the diff is M6 only.
+- Verified by the author: 115 JVM tests, lintDebug 0 errors, assembleDebug/Release, 22 instrumented tests on a 720x1280/320dpi and a normal emulator display, and a manual smoke test of every entry point.
+- Pay particular attention to: the single-edit write of custom shop + favorite (StoreKeys sharing, no duplicates, JSON compatibility with existing favorites), ShopLookup order, AddShopViewModel (double-save guard, savedId → navigation once, per-field error clearing, location failure), AppRoot navigation (popUpTo AddShopRoute inclusive on save, ifResumed guards), LocationPicker's touch detector and the scroll disabling in AddShopScreen, ShareScreen's text template (blank type/note), MainActivity's chooser, and the clipboard call.

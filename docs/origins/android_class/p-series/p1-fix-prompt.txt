@@ -1,0 +1,9 @@
+`./gradlew testDebugUnitTest` failed at :app:compileDebugKotlin with this error:
+
+e: file:///D:/Claude%20Code/android_class/app/src/main/java/edu/android/wut2eat/domain/ShopName.kt:7:21 None of the following candidates is applicable:
+fun CharSequence.indexOfAny(chars: CharArray, startIndex: Int = ..., ignoreCase: Boolean = ...): Int:
+  Argument type mismatch: actual type is 'List<Char>', but 'CharArray' was expected.
+fun CharSequence.indexOfAny(strings: Collection<String>, startIndex: Int = ..., ignoreCase: Boolean = ...): Int:
+  Argument type mismatch: actual type is 'List<Char>', but 'Collection<String>' was expected.
+
+Fix this compile error in app/src/main/java/edu/android/wut2eat/domain/ShopName.kt with the smallest change (for example, make NAME_SEPARATORS a CharArray via charArrayOf, or keep the List<Char> and convert it at the call site with toCharArray()). If you change the type of NAME_SEPARATORS, also update testNameSeparators in app/src/test/java/edu/android/wut2eat/domain/ShopNameTest.kt so it still compiles and passes (assertEquals on two CharArrays compares references, so compare with toList() or assertArrayEquals). Keep the same four separators (U+007C, U+FF5C, U+4E28, U+2502) and the same behaviour. Do not touch any other file, do not run Gradle, do not commit. Finish by listing the files you changed.

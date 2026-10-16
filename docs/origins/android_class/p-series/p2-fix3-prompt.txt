@@ -1,0 +1,15 @@
+All tests pass now. The review asks for these small changes, and nothing else:
+
+a. app/src/main/java/edu/android/wut2eat/ui/detail/DetailViewModel.kt, in `fetchPlacesDetails`: set `info.value = DetailInfo.Loading` synchronously BEFORE `viewModelScope.launch` (move it out of the coroutine), so a second 重試 tap sees Loading and `retryInfo()` ignores it. Inside the coroutine, catch `Exception` instead of `Throwable`, keeping the `catch (e: CancellationException) { throw e }` clause first.
+
+b. app/src/main/java/edu/android/wut2eat/ui/detail/DetailScreen.kt, the 電話訂餐 button: remove `placesPhone!!`. Build `callButtonText` with a null check on `placesPhone` itself (`if (placesPhone != null) stringResource(R.string.btn_call_order_number, placesPhone) else stringResource(R.string.btn_call_order)`, using the smart cast) instead of `if (canCall)`. Keep `canCall` for the other uses if you like; behaviour must not change.
+
+c. app/src/main/java/edu/android/wut2eat/di/AppContainer.kt: remove the extra blank line after `val placeDetails: PlaceDetailsSource = CachedPlaceDetails(placeDetailsSource)` (leave exactly one blank line before the next declaration).
+
+d. app/src/main/java/edu/android/wut2eat/domain/Format.kt: remove the trailing blank line at the end of the file (the file should end with the closing `}` of the last function followed by a single newline).
+
+e. app/src/androidTest/java/edu/android/wut2eat/ui/AppFlowTest.kt:
+   - In `multiplayerWinner_bookingAppearsOnMe`, replace the hardcoded `"玩家 $p 抽到："` with `string(R.string.multi_player_result_desc, p, "")`, still with `substring = true`.
+   - In `favoritesDraw_opensDetail_withCallOrderDisabled`, `container` is unused: replace `val (container, _) = start()` with `start()`.
+
+Change only these five files and only these lines. Do not reformat anything else. Do not run Gradle, commit, or push. Finish by listing what you changed.

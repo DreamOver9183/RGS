@@ -1,0 +1,2 @@
+# Keep LF everywhere: the rgs scripts write LF files and the skills are shared across machines.
+* text=auto eol=lf

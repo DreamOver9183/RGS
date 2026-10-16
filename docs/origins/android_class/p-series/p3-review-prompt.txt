@@ -1,0 +1,18 @@
+You are reviewing a pull request for the Android repo in the current directory (Food Roulette, Kotlin/Jetpack Compose, package edu.android.wut2eat). This is a read-only review: do not edit any file, do not run Gradle, do not commit. Never read or print local.properties.
+
+Inputs:
+- The PR diff (phase 3 only, against the phase-2 branch it builds on): <scratchpad>\agy\p3-pr.diff
+- The spec it implements: <scratchpad>\specs\p3-filters.md
+- AGENTS.md in the repo root (project rules and documentation conventions). You may read any repository source file for context; the working tree is at the PR's head commit (branch feat/home-filters).
+
+Note: the spec says not to change AGENTS.md or README.md; that rule applied to the coding step only. The documentation updates in this PR were made deliberately in a separate docs step, so judge them on accuracy, not on whether they exist.
+
+Known deliberate refinements beyond the spec (requested in review; judge them on correctness): toShops drops a period whose close day cannot be mapped instead of treating it as 24 hours; RouletteViewModel applies the loaded filter only while the state's filter is still the default; setFilter returns early when the filter is unchanged.
+
+Review the diff against the spec and AGENTS.md for:
+1. Correctness (logic and edge cases in isOpenAt/weekMinuteAt, matchesFilter, searchQuery, the filter codec, PlacesSearch field selection and toShops conversion, RouletteViewModel filter load/save/spin, coroutine handling, Compose UI states in Panel and FilterSheet, Kotlin compile issues).
+2. Spec compliance (every requirement met; nothing outside scope: multiplayer behaviour, favorites draw, detail/share/booking/me pages, Gradle files, ProGuard rules, and the Manifest must be unchanged; StoredShop must not gain the new fields; Enterprise filter fields only when rating, price, or open-now is active).
+3. Test quality (do the JVM and Compose tests cover the spec's cases and assert the right things).
+4. Documentation accuracy (do the AGENTS.md and README.md changes match the code and the real test counts: 152 JVM tests in 41 classes, 31 Compose instrumentation tests in 14 classes).
+
+Reply with a first line of exactly `VERDICT: PASS` or `VERDICT: FAIL`, followed by numbered findings, each as: file:line, severity (blocker/major/minor/nit), explanation. Use FAIL only if there is at least one blocker or major finding. If there are no findings, say so after the verdict line.

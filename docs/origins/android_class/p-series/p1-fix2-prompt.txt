@@ -1,0 +1,6 @@
+Review follow-up for the same change. Make exactly these two edits and nothing else:
+
+1. In app/src/main/java/edu/android/wut2eat/domain/ShopName.kt, make NAME_SEPARATORS `private` (it should become `private val NAME_SEPARATORS = charArrayOf('|', '｜', '丨', '│')`), so the public API no longer exposes a mutable array. Keep the same four separators and the same cleanShopName behaviour.
+2. In app/src/test/java/edu/android/wut2eat/domain/ShopNameTest.kt, delete the testNameSeparators test (it only checks the constant, which is now private). Keep the other five tests unchanged and remove any import that becomes unused.
+
+Do not touch any other file, do not reformat other code, do not run Gradle, do not commit. Finish by listing the files you changed.

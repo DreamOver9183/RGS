@@ -1,0 +1,19 @@
+The JVM tests now pass. In `./gradlew connectedDebugAndroidTest`, one new test fails: edu.android.wut2eat.ui.AppFlowTest.multiplayerWinner_bookingAppearsOnMe, at app/src/androidTest/java/edu/android/wut2eat/ui/AppFlowTest.kt line 157:
+
+    rule.onNodeWithText(string(R.string.multi_source_favorites)).performClick()
+
+java.lang.AssertionError: Failed to inject touch input.
+Reason: Expected exactly '1' node but found '2' nodes that satisfy: (Text + InputText + EditableText contains '收藏' (ignoreCase: false))
+  1) the pool FilterChip: Role = 'Checkbox', Selected = 'false', Text = '[收藏]'
+  2) the bottom navigation tab: Role = 'Tab', Selected = 'false', Text = '[收藏]'
+
+The string multi_source_favorites (收藏) is the same text as tab_favorites, so the matcher must pick the chip explicitly. Both nodes have a Selected property, so isSelectable() does not tell them apart; match on the role instead, for example:
+
+    rule.onNode(
+        hasText(string(R.string.multi_source_favorites)) and
+            SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox)
+    ).performClick()
+
+(imports: androidx.compose.ui.test.SemanticsMatcher, androidx.compose.ui.semantics.SemanticsProperties, androidx.compose.ui.semantics.Role). Also make the waitUntil just before it (line ~153) wait for that same chip matcher rather than any node with the text. Then check the rest of this test for any other text that also appears on another visible node of the same page (for example a bottom-tab label) and disambiguate it the same way. All other instrumentation tests pass.
+
+Change only app/src/androidTest/java/edu/android/wut2eat/ui/AppFlowTest.kt. Do not run Gradle, commit, or push. Finish by listing what you changed.

@@ -1,0 +1,8 @@
+The main sources and the instrumentation tests compile, but `./gradlew testDebugUnitTest` fails in :app:compileDebugUnitTestKotlin with two errors, both in app/src/test/java/edu/android/wut2eat/testing/FakePlaceDetailsSource.kt:
+
+1. Line 9:17 `Prohibited vararg parameter type 'Result<PlaceDetails>'.` (Kotlin FORBIDDEN_VARARG_PARAMETER_TYPE: kotlin.Result is an inline value class and cannot be a vararg element type). The secondary constructor `constructor(vararg results: Result<PlaceDetails>)` is not allowed.
+2. Line 22:5 `'@Synchronized' annotation is not applicable to 'suspend' functions and lambdas.` on `override suspend fun fetch`.
+
+Fix only these. Keep the fake's behaviour from the spec (records every fetched id in `calls`; returns queued results in order, each either a PlaceDetails or an exception; returns PlaceDetails() when nothing is queued). For example, drop the vararg constructor (or replace it with one that does not use Result as a vararg type) and protect the shared state without annotating the suspend function (e.g. a private lock object with `synchronized(lock) { ... }` inside fetch, or a non-suspend @Synchronized helper that fetch calls). Then update the call sites that used the vararg form so they still compile: app/src/test/java/edu/android/wut2eat/data/CachedPlaceDetailsTest.kt (lines 16 and 30) and app/src/test/java/edu/android/wut2eat/ui/detail/DetailViewModelTest.kt (line 147), without changing what those tests check.
+
+Do not touch any other file. Do not run Gradle, commit, or push. Finish by listing the files you changed.

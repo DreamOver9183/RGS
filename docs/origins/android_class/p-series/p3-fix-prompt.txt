@@ -1,0 +1,8 @@
+The build fails at :app:compileDebugKotlin with these errors:
+
+e: app/src/main/java/edu/android/wut2eat/data/PlacesSearch.kt:55:53 Unresolved reference 'await' on receiver of type 'Task<SearchNearbyResponse!>'.
+e: app/src/main/java/edu/android/wut2eat/data/PlacesSearch.kt:60:51 Unresolved reference 'await' on receiver of type 'Task<FetchPlaceResponse!>'.
+
+Cause: your edit to PlacesSearch.kt removed the line `import kotlinx.coroutines.tasks.await` while adding the new domain imports. Restore that import (keep the new imports). Also re-check every other file you changed for imports you removed by accident, and make sure nothing else would fail to compile (main sources, JVM tests, and androidTest sources).
+
+Change nothing else. Do not commit, do not switch branches, do not run Gradle. Finish by listing the files you changed in this step.
