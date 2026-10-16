@@ -82,7 +82,8 @@ argument-hint: init | plan <需求> | run M<n> | merged <PR#> | release <版本>
      review.py --pr <N> --task m<n> --note <note> --ledger docs/rgs/reviews/PR-<N>.md [--post]
      ```
      是否加 `--post` 依 profile 的 `pr.post_review_comment` 決定。
-   - agy 沒有可用結果（exit 3／5）時，用 ⚠️ 回報，**不能當成 PASS**。
+   - 在主 checkout 執行，ledger 寫在主 checkout 的 `docs/rgs/reviews/`：它不進 PR，合併後在 `merged` 的知識沉澱一起 commit。報告貼在 PR 留言，ledger 會記下留言網址。
+   - agy 沒有可用結果（exit 3／5）時，用 ⚠️ 回報，**不能當成 PASS**。摘要有 `post_error` 時，表示審查有結果但留言沒貼上：照常裁決，並回報使用者。
 
 7. **裁決**：
    - 在 ledger 裡把每條意見改成「採納」「不採納（附理由）」或「延後到 M<k>（附理由）」。
@@ -97,12 +98,12 @@ argument-hint: init | plan <需求> | run M<n> | merged <PR#> | release <版本>
 
 使用者回報已合併後：
 
-1. 用 sub-agent（brief：合併後收尾）執行：切到 base 分支、`git pull --ff-only --prune`、`rgs.py cleanup --task m<n> --delete-branch`。
-2. 有堆疊在這個 PR 上的 PR 時，確認它的 base 已改成 main，或依 workflow.md「平行與堆疊」處理。
+1. 有任務堆疊在這個里程碑上（`prepare --stack-on m<n>`）時，先對每個子任務執行 `rgs.py retarget --task m<k>`。它會確認這個 PR 已合併，把子 PR 的 base 改成 profile 的 `base_branch`；如果是 squash／rebase 合併，還會把子任務自己的 commit rebase 到 base 再推送。細節見 workflow.md「平行與堆疊」。exit 8（衝突）或 10（PR 已關閉、推送被拒）時停下來回報。
+2. 用 sub-agent（brief：合併後收尾）執行：切到 base 分支、`git pull --ff-only --prune`、`rgs.py cleanup --task m<n> --delete-branch`。遠端的父分支要在 retarget 之後才刪。
 3. 知識沉澱：
    - 只把新的決策、慣例、技術坑寫進知識庫。
    - 更新 `design.md` 的狀態總覽、追溯矩陣與教訓清單。
-   - commit 這些文件。直接 commit 到 base 分支或另開 PR，依 init 時與使用者的約定。
+   - commit 這些文件，以及這個 PR 的 ledger（`docs/rgs/reviews/PR-<N>.md`）。直接 commit 到 base 分支或另開 PR，依 init 時與使用者的約定。
 
 ## release <版本>
 
@@ -110,9 +111,9 @@ argument-hint: init | plan <需求> | run M<n> | merged <PR#> | release <版本>
 
 1. auditor 稽核（brief：auditor）。
 2. 修正文件。
-3. 版本號由 Gemini 依小型 spec 實作，經審查後交給使用者合併。
-4. 從合併後的 commit 建置產物，計算 SHA-256，寫 release notes，並用 `secret_scan.py --files` 掃描。
-5. **建立 GitHub release 會對外公開：執行 `gh release create` 前，先把版本號、產物與 release notes 給使用者確認。**
+3. 版本號由 Gemini 依小型 spec 實作，經審查後交給使用者合併。沒有版本號檔案的專案略過。
+4. 從合併後的 commit 建置產物（沒有建置步驟就用 `git archive`），計算 SHA-256，寫 release notes，並用 `secret_scan.py --files` 掃描 notes 與發佈的檔案。
+5. **建立 GitHub release 會對外公開：執行 `gh release create --target <commit>` 前，先把版本號、產物、SHA-256 與 release notes 給使用者確認，並提供 `--draft`（不公開、不建 tag）的選項。**
 
 ## status
 

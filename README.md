@@ -67,7 +67,7 @@ skills/
     references/             流程標準、agy 已驗證行為、sub-agent brief、委派、疑難排解、腳本參考
     templates/              規格、需求、設計、修正指示、審查備註、PR、release notes、知識庫骨架、prompts
     scripts/                rgs.py、review.py、guard.py、doctor.py、batch.py、digest.py、scope_check.py、secret_scan.py
-    tests/                  單元與整合測試（以 fake_agy.py 代替 agy）
+    tests/                  單元與整合測試（以 fake_agy.py 代替 agy、fake_gh.py 代替 gh）
 docs/origins/               整理流程時參考的原始素材（規則、spec、prompt、腳本）
 install.ps1
 ```
@@ -78,4 +78,4 @@ install.ps1
 python -m unittest discover -s skills/rgs-core/tests
 ```
 
-測試使用 `tests/fake_agy.py` 模擬 agy 的各種回應（成功、timeout、錯誤、額度用完、寫檔、審查、批次、摘要），不會消耗 Gemini 額度。整合測試會建立暫存 repo 與 bare remote，完整跑過 prepare → implement → fix → check → land，以及 review 與 ship。
+測試使用 `tests/fake_agy.py` 模擬 agy 的各種回應（成功、timeout、錯誤、額度用完、寫檔、審查、批次、摘要），不會消耗 Gemini 額度。整合測試會建立暫存 repo 與 bare remote，完整跑過 prepare → implement → fix → check → land，以及 review 與 ship。`tests/fake_gh.py` 以 bare remote 模擬 GitHub CLI，涵蓋 /rgs-pr 的開 PR、推到既有 PR、堆疊 PR、`review.py --post` 留言、父 PR 合併後的 `retarget`。

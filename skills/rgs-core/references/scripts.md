@@ -27,7 +27,8 @@
 | `fix --task ID --notes FILE` | Gemini 依修正指示修改 | `--allow PATH`（擴充可改檔案）、`--fresh`（開新對話）、`--force`（超過上限仍執行） |
 | `check --task ID` | 範圍檢查 + profile 指令 | `--level quick\|verify\|all`、`--ignore GLOB` |
 | `land --task ID --message-file F` | /rgs-main：commit、必要時 rebase 並重跑 quick、fast-forward push 到 base、同步主 checkout、移除 worktree | `--skip-tests` |
-| `ship --task ID --message-file F --title T --body-file B` | /rgs-pr：commit、push 分支、開 PR（已有 PR 時只 push） | `--allow`、`--draft`、`--no-pr` |
+| `ship --task ID --message-file F [--title T --body-file B]` | /rgs-pr：commit、push 分支、開 PR（已有 PR 時只 push，不需要 `--title`／`--body-file`） | `--allow`、`--draft`、`--no-pr` |
+| `retarget --task ID` | /rgs-pr：父任務的 PR 合併後，把堆疊的任務與它的 PR 改到 base 分支；squash／rebase 合併時先 rebase 再 `--force-with-lease` 推送 | `--force`（不檢查父 PR 是否已合併） |
 | `cleanup --task ID` | 移除 worktree 與 guard | `--delete-branch` |
 | `status [--task ID]` | 列出任務狀態，供中斷後續跑 | |
 
@@ -48,13 +49,13 @@ review.py --task ID [--note FILE]                  # 尚未 commit 的任務變�
 review.py --diff-base REF [--head REF]             # 任意本地範圍
 ```
 
-摘要：`verdict`（腳本依 findings 重算：有 blocker/major 就是 `CHANGES_REQUESTED`）、`model_verdict`、`counts`、`report`（Markdown）、`ledger`。exit 0 只代表審查有產出，**通過與否看 `verdict`**。
+摘要：`verdict`（腳本依 findings 重算：有 blocker/major 就是 `CHANGES_REQUESTED`）、`model_verdict`、`counts`、`report`（Markdown）、`ledger`、`posted`／`comment_url`（`--post` 成功時）或 `post_error`（留言失敗；審查結果仍有效，exit 仍是 0）。exit 0 只代表審查有產出，**通過與否看 `verdict`**。
 
 ## 其他
 
 | 腳本 | 用途 |
 | :-- | :-- |
-| `doctor.py [--quick] [--flow main\|pr] [--init] [--json]` | 環境檢查；`--init` 產生 `.rgs/profile.json` 草稿並列出可加的權限規則 |
+| `doctor.py [--quick] [--flow main\|pr] [--init] [--json]` | 環境檢查（含 git 身分：沒有 user.name／user.email 時 `land`／`ship` 無法 commit）；`--init` 產生 `.rgs/profile.json` 草稿並列出可加的權限規則 |
 | `scope_check.py --task ID` | 單獨跑範圍檢查 |
 | `secret_scan.py [--cwd DIR] [--files …]` | 掃描 staged diff 或指定檔案 |
 | `batch.py …` | 大量資料批次，見 `delegation.md` |
@@ -66,4 +67,4 @@ review.py --diff-base REF [--head REF]             # 任意本地範圍
 python -m unittest discover -s <core>/tests
 ```
 
-測試用 `tests/fake_agy.py` 代替 agy（環境變數 `RGS_AGY`），不會消耗 Gemini 額度。
+測試用 `tests/fake_agy.py` 代替 agy（環境變數 `RGS_AGY`），不會消耗 Gemini 額度；用 `tests/fake_gh.py` 代替 GitHub CLI（環境變數 `RGS_GH`），以本機 bare remote 模擬 PR、留言與改 base。

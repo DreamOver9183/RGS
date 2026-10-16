@@ -8,6 +8,7 @@ import tempfile
 TESTS = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(os.path.dirname(TESTS), 'scripts')
 FAKE_AGY = os.path.join(TESTS, 'fake_agy.py')
+FAKE_GH = os.path.join(TESTS, 'fake_gh.py')
 sys.path.insert(0, SCRIPTS)
 
 
@@ -58,7 +59,7 @@ def make_repo(root, profile=None, files=None):
 
 
 def run_script(name, args, cwd, scenario='ok', extra_env=None):
-    env = dict(os.environ, RGS_AGY=FAKE_AGY, FAKE_AGY_SCENARIO=scenario)
+    env = dict(os.environ, RGS_AGY=FAKE_AGY, RGS_GH=FAKE_GH, FAKE_AGY_SCENARIO=scenario)
     env.update(extra_env or {})
     proc = subprocess.run([sys.executable, '-I', os.path.join(SCRIPTS, name), *args], cwd=cwd,
                           capture_output=True, encoding='utf-8', errors='replace', env=env)
@@ -73,7 +74,7 @@ def run_script(name, args, cwd, scenario='ok', extra_env=None):
 
 
 def calls(state_dir):
-    """Recorded fake agy invocations, oldest first."""
+    """Recorded fake agy (or fake gh) invocations, oldest first."""
     folder = os.path.join(state_dir, 'calls')
     if not os.path.isdir(folder):
         return []

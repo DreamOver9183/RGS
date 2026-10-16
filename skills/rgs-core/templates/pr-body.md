@@ -15,7 +15,7 @@
 ## 審查
 
 - Claude 審 diff：{k} 輪修正（重點：{…}）
-- agy 合併閘門：{PASS／待審}；裁決紀錄：`docs/rgs/reviews/PR-{N}.md`
+- agy 合併閘門：{PASS／待審}；審查報告會貼在本 PR 的留言，裁決紀錄在合併後存進 `docs/rgs/reviews/`
 
 ## 尚未驗證
 

@@ -21,8 +21,11 @@
 | worktree 放在 `%TEMP%` 時測試顯示「總計 0」 | Smart App Control 擋下暫存資料夾裡的測試 DLL，0 個測試看起來像通過 | 預設 worktree 在 `<repo>.rgs/`；不要把 `worktree_root` 設到 Temp。`doctor.py` 會警告 |
 | `land` exit 8（rebase 衝突） | 遠端 main 在任務期間有人改到同一處 | commit 仍在 `rgs/<task>` 分支上。回報使用者；必要時把衝突內容寫進新的修正指示 |
 | `land` exit 10（push 被拒） | 分支保護、沒有權限，或遠端又前進了 | 重跑 `land`。若是分支保護，改用 /rgs-pr。**不要 force push** |
-| 堆疊的 PR 被自動關閉 | base PR 合併時刪除了分支 | 合併前 `gh pr edit <N> --base main`；已關閉就 rebase 後重開 |
+| 堆疊的 PR 被自動關閉 | 父 PR 還沒合併就刪除了父分支（合併後才刪，GitHub 會自動改 base，不會關閉） | 在 GitHub 還原父分支後 reopen；不行就在任務 state 清掉 `pr`，`retarget` 後重新 `ship` 開新 PR |
+| 子 PR 合併後變更沒有進 base | 父 PR 合併後沒有 retarget，子 PR 仍指向父分支 | 父 PR 合併後一律 `rgs.py retarget --task <子任務>`；已經合進父分支的話，從父分支再開一個 PR 到 base |
+| `retarget` exit 8 | squash／rebase 合併後，子任務的 commit 與 base 衝突 | 已 `rebase --abort`，分支沒變。回報使用者，把衝突寫進修正指示 |
 | 移除 worktree 時出現 `Filename too long` | Windows 路徑長度限制 | `git config core.longpaths true`；手動刪除時用 `\\?\` 前綴 |
+| `main_checkout_changed_during_run` 為 true | Claude 在等待 agy 時自己改了主 checkout（例如 `merged` 的知識沉澱 commit、寫 ledger），或 agy 越界 | 對照 `git status`／`git log` 與自己做過的事；不是自己改的，再看 `guard_denials` 並停下回報 |
 | 主 checkout 不是乾淨的，`land` 後沒有同步 | 使用者有自己的改動，或不在 base 分支上 | 正常現象，告訴使用者手動 `git pull --ff-only` |
 | `git worktree prune` 被權限系統擋下 | 自動模式分類器把它當成破壞性操作 | 用 `rgs.py cleanup`（`git worktree remove`），不需要 prune |
 

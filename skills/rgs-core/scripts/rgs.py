@@ -8,7 +8,8 @@ Run from anywhere inside the project (the main checkout or a task worktree):
     python -I rgs.py fix       --task <id> --notes <fix.md> [--allow PATH ...] [--fresh] [--force]
     python -I rgs.py check     --task <id> [--level quick|verify|all]
     python -I rgs.py land      --task <id> --message-file <msg.txt> [--skip-tests]          # /rgs-main: push to main
-    python -I rgs.py ship      --task <id> --message-file <msg.txt> --title T --body-file B   # /rgs-pr: open a PR
+    python -I rgs.py ship      --task <id> --message-file <msg.txt> [--title T --body-file B]   # /rgs-pr: open a PR
+    python -I rgs.py retarget  --task <id> [--force]   # /rgs-pr: the parent PR was merged; move onto the base branch
     python -I rgs.py cleanup   --task <id> [--delete-branch]
     python -I rgs.py status    [--task <id>]
 
@@ -350,6 +351,8 @@ def cmd_land(args):
 
 def cmd_ship(args):
     repo, profile, _, task = context(args.task)
+    if not (args.no_pr or task.get('pr') or (args.title and args.body_file)):
+        raise rc.RgsError('opening a PR needs --title and --body-file (or pass --no-pr)', code=2)
     wt, remote = task['worktree'], profile['remote']
     docs_globs = list(profile.get('knowledge_base') or []) + ['README*', profile['docs_dir'].rstrip('/') + '/**']
     code, info = stage_and_commit(task, profile, args.message_file, docs_globs + args.allow)
@@ -373,11 +376,11 @@ def cmd_ship(args):
     if task.get('stack_on'):
         _, parent = rc.get_task(repo, task['stack_on'])
         base = parent['branch']
-    cmd = ['gh', 'pr', 'create', '--base', base, '--head', task['branch'], '--title', args.title,
+    cmd = ['pr', 'create', '--base', base, '--head', task['branch'], '--title', args.title,
            '--body-file', os.path.abspath(args.body_file)]
     if args.draft:
         cmd.append('--draft')
-    proc = rc.run(cmd, cwd=wt, check=False)
+    proc = rc.gh(cmd, cwd=wt, check=False)
     if proc.returncode != 0:
         rc.emit({**out, 'shipped': False, 'note': 'pushed, but gh pr create failed', 'stderr': proc.stderr[-800:]})
         return EXIT_PUSH
@@ -386,6 +389,66 @@ def cmd_ship(args):
     pr = int(m.group(1)) if m else None
     rc.update_task(repo, args.task, step='pr-open', commit=info['commit'], pr=pr, pr_url=url)
     rc.emit({**out, 'shipped': True, 'pr': pr, 'url': url, 'base': base})
+    return rc.EXIT_OK
+
+
+def cmd_retarget(args):
+    """After the parent PR is merged: move a stacked task, and its PR, onto the base branch."""
+    repo, profile, _, task = context(args.task)
+    if not task.get('stack_on'):
+        raise rc.RgsError(f'task {args.task} is not stacked on another task')
+    _, parent = rc.get_task(repo, task['stack_on'])
+    wt, remote, base_branch = task['worktree'], profile['remote'], profile['base_branch']
+    if not os.path.isdir(wt):
+        raise rc.RgsError(f'the worktree of {args.task} is gone; run prepare again first')
+    dirty = [p for _, p in rc.changed_files(wt) if p not in rc.GUARD_FILES]
+    if dirty:
+        raise rc.RgsError('the worktree has uncommitted changes (' + ', '.join(dirty[:5]) + '); ship them first')
+    if parent.get('pr') and not args.force:
+        state = json.loads(rc.gh(['pr', 'view', str(parent['pr']), '--json', 'state'], cwd=wt).stdout)['state']
+        if state != 'MERGED':
+            raise rc.RgsError(f'PR #{parent["pr"]} of {task["stack_on"]} is {state}, not merged; '
+                              'retarget after the user merges it (or pass --force)')
+    target = f'{remote}/{base_branch}'
+    out = {'task': args.task, 'from': task['base'], 'base': target, 'rebased': False}
+    if task.get('pr'):
+        view = json.loads(rc.gh(['pr', 'view', str(task['pr']), '--json', 'state,baseRefName'], cwd=wt).stdout)
+        out['pr'] = task['pr']
+        if view['state'] != 'OPEN':
+            rc.emit({**out, 'pr_state': view['state'],
+                     'note': f'PR #{task["pr"]} is {view["state"]}; nothing was changed. Reopen it on GitHub, '
+                             'or clear it from the task state and ship again to open a new PR'})
+            return EXIT_PUSH
+    rc.git(['fetch', '-q', remote, base_branch], cwd=wt)
+    old = rc.git(['rev-parse', 'HEAD'], cwd=wt)
+    fork = rc.git(['merge-base', 'HEAD', parent.get('commit') or parent['branch']], cwd=wt)
+    if rc.run(['git', 'merge-base', '--is-ancestor', fork, target], cwd=wt, check=False).returncode != 0:
+        # The parent was squash- or rebase-merged, so its commits are not in the base branch:
+        # replay only this task's own commits. --autostash covers a tracked .agents/hooks.json.
+        proc = rc.run(['git', 'rebase', '-q', '--autostash', '--onto', target, fork], cwd=wt, check=False)
+        if proc.returncode != 0:
+            rc.git(['rebase', '--abort'], cwd=wt, check=False)
+            rc.emit({**out, 'note': f'rebase onto {target} hit conflicts; nothing was changed',
+                     'stderr': (proc.stderr or proc.stdout)[-800:]})
+            return rc.EXIT_CONFLICT
+        out['rebased'] = True
+    if task.get('pr'):
+        if view['baseRefName'] != base_branch:
+            rc.gh(['pr', 'edit', str(task['pr']), '--base', base_branch], cwd=wt)
+        out['pr_base'] = base_branch
+    if out['rebased'] and task.get('commit'):
+        # The branch was pushed before; only overwrite it if it is still where this worktree left it.
+        push = rc.run(['git', 'push', f'--force-with-lease=refs/heads/{task["branch"]}:{old}', remote,
+                       f'HEAD:refs/heads/{task["branch"]}'], cwd=wt, check=False)
+        if push.returncode != 0:
+            rc.emit({**out, 'note': 'the rebased branch was not pushed (the remote branch moved?)',
+                     'stderr': (push.stderr or push.stdout)[-800:]})
+            return EXIT_PUSH
+        out['pushed'] = True
+    head = rc.git(['rev-parse', 'HEAD'], cwd=wt)
+    rc.update_task(repo, args.task, base=target, stack_on=None, retargeted_from=task['stack_on'], step='retargeted',
+                   **({'commit': head} if task.get('commit') else {}))
+    rc.emit({**out, 'commit': head})
     return rc.EXIT_OK
 
 
@@ -453,14 +516,15 @@ def main():
     p.add_argument('--allow', action='append', default=[])
     p.add_argument('--draft', action='store_true')
     p.add_argument('--no-pr', action='store_true')
+    p = sub.add_parser('retarget')
+    p.add_argument('--task', required=True)
+    p.add_argument('--force', action='store_true')
     p = sub.add_parser('cleanup')
     p.add_argument('--task', required=True)
     p.add_argument('--delete-branch', action='store_true')
     p = sub.add_parser('status')
     p.add_argument('--task')
     args = ap.parse_args()
-    if args.cmd == 'ship' and not args.no_pr and not (args.title and args.body_file):
-        ap.error('ship needs --title and --body-file unless --no-pr is given')
     handler = globals()['cmd_' + args.cmd]
     try:
         return handler(args)

@@ -58,7 +58,7 @@ STOP 條件：任何步驟失敗（包括 exit 4、7、10），不要繞過，�
 你是 rgs 的雜務 sub-agent，負責執行獨立審查，不修改任何檔案。
 在 {repo} 執行：python -I <core>/scripts/review.py --pr {N} --task {T} --note {note} --ledger {docs/rgs/reviews/PR-N.md} {--post}
 （可能要 10–25 分鐘）。
-回報：exit code、verdict、model_verdict、counts、summary、report 與 ledger 路徑、guard_denials。
+回報：exit code、verdict、model_verdict、counts、summary、report 與 ledger 路徑、posted 與 comment_url（或 post_error 原文）、guard_denials。
 exit code 不是 0 時回報 agy.kind 與 detail，不要重試。
 ```
 

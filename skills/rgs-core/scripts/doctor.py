@@ -13,7 +13,6 @@ import glob
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -152,6 +151,12 @@ def main():
             add('remote', 'warn' if args.flow == 'main' else 'fail', f'no remote named {remote}')
         current = rc.git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo, check=False)
         add('current branch', 'ok' if current == base else 'warn', current)
+        # land/ship commit in the task worktree; without an identity git refuses and the run stops there.
+        ident = rc.run(['git', 'var', 'GIT_COMMITTER_IDENT'], cwd=repo, check=False)
+        add('git identity', 'ok' if ident.returncode == 0 else 'fail',
+            ident.stdout.rsplit('>', 1)[0] + '>' if ident.returncode == 0 else
+            'git user.name / user.email not set; run git config user.name … and git config user.email … '
+            '(in this repo or with --global)')
         dirty = [p for _, p in rc.changed_files(repo) if not p.startswith('.rgs/')]
         add('working tree', 'ok' if not dirty else 'warn',
             'clean' if not dirty else f'{len(dirty)} changed file(s), e.g. {", ".join(dirty[:3])}')
@@ -174,11 +179,11 @@ def main():
             code, out = quiet([*agy, '-p', '/usage'], timeout=90, env=dict(os.environ, MSYS_NO_PATHCONV='1'))
             add('agy quota', 'ok' if code == 0 else 'warn', ' | '.join(out.strip().splitlines()[:8])[:600])
         if args.flow == 'pr':
-            if shutil.which('gh'):
-                code, out = quiet(['gh', 'auth', 'status'], timeout=30)
+            try:
+                code, out = quiet([*rc.find_gh(), 'auth', 'status'], timeout=30)
                 add('gh auth', 'ok' if code == 0 else 'fail', out.strip().splitlines()[0][:120] if out.strip() else '')
-            else:
-                add('gh', 'fail', 'GitHub CLI not found')
+            except rc.RgsError as e:
+                add('gh', 'fail', str(e))
 
     failures = [c for c in checks if c['status'] == 'fail']
     result = {'ok': not failures, 'checks': checks}

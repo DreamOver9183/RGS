@@ -82,6 +82,27 @@ class HelpersTest(unittest.TestCase):
         self.assertTrue(rc.match_any('RimTaiName_KEY_01.txt', ['*_KEY_*']))
         self.assertFalse(rc.match_any('src/app.py', ['tests/*.py']))
 
+    def test_decode_output_utf8_and_ansi_code_page(self):
+        text = '驗收條件 1 ... ok'
+        self.assertEqual(rc.decode_output(text.encode('utf-8')), text)
+        # Python children on a zh-TW Windows write piped output in cp950, not UTF-8.
+        import locale
+        encoding = locale.getencoding() if hasattr(locale, 'getencoding') else locale.getpreferredencoding(False)
+        try:
+            raw = text.encode(encoding)
+        except (LookupError, UnicodeEncodeError):
+            self.skipTest(f'the ANSI code page {encoding} cannot encode the sample')
+        if raw == text.encode('utf-8'):
+            self.skipTest('the ANSI code page is UTF-8 here')
+        self.assertEqual(rc.decode_output(raw), text)
+
+    def test_find_gh_override(self):
+        os.environ['RGS_GH'] = 'fake_gh.py'
+        try:
+            self.assertEqual(rc.find_gh()[1:], ['fake_gh.py'])
+        finally:
+            os.environ.pop('RGS_GH')
+
     def test_render_template_fills_placeholders(self):
         text = rc.render_template('prompts/fix.md', fix='F', rules='R', extra_allowed='')
         self.assertIn('`F`', text)

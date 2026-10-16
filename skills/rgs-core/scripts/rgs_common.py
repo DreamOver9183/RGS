@@ -97,6 +97,31 @@ def git(args, cwd, check=True):
     return run(['git', *args], cwd=cwd, check=check).stdout.strip()
 
 
+def find_gh():
+    """argv prefix for the GitHub CLI. RGS_GH overrides it (a .py file runs with this Python; used by tests)."""
+    override = os.environ.get('RGS_GH')
+    if override:
+        return [sys.executable, override] if override.endswith('.py') else [override]
+    found = shutil.which('gh')
+    if found:
+        return [found]
+    raise RgsError('GitHub CLI (gh) not found; install it and run gh auth login')
+
+
+def gh(args, cwd, check=True):
+    return run([*find_gh(), *args], cwd=cwd, check=check)
+
+
+def decode_output(data):
+    """Child process output: UTF-8 when it decodes as UTF-8, else the Windows ANSI code page (e.g. cp950)."""
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        import locale
+        encoding = locale.getencoding() if hasattr(locale, 'getencoding') else locale.getpreferredencoding(False)
+        return data.decode(encoding or 'utf-8', 'replace')
+
+
 def repo_root(path='.'):
     try:
         return os.path.normpath(git(['rev-parse', '--show-toplevel'], cwd=path))
@@ -526,7 +551,7 @@ def run_commands(commands, cwd, profile, log_prefix, timeout_s=3600):
             proc = subprocess.run(shell_cmd(command, profile), cwd=cwd, capture_output=True, env=env,
                                   stdin=subprocess.DEVNULL, timeout=timeout_s)
             code = proc.returncode
-            output = proc.stdout.decode('utf-8', 'replace') + proc.stderr.decode('utf-8', 'replace')
+            output = decode_output(proc.stdout) + decode_output(proc.stderr)
         except subprocess.TimeoutExpired:
             code, output = -1, f'timed out after {timeout_s}s'
         log = f'{log_prefix}-{i}.log'

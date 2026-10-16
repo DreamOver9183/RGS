@@ -87,17 +87,17 @@ def report(title, model, data, verdict):
     return '\n'.join(lines) + '\n'
 
 
-def ledger_section(round_no, model, data, verdict, report_path):
+def ledger_section(round_no, model, data, verdict, report_path, comment_url=None):
     lines = [f'## 第 {round_no} 輪審查（{time.strftime("%Y-%m-%d %H:%M")}，`{model}`，判定 {verdict}）', '',
-             f'報告：`{report_path}`', '']
+             f'報告：`{report_path}`' + (f'；PR 留言：{comment_url}' if comment_url else ''), '']
     if not data['findings']:
-        return '\n'.join(lines + ['沒有意見。', '']) + '\n'
+        return '\n'.join(lines + ['沒有意見。']) + '\n'
     lines += ['| # | 嚴重度 | 位置 | 問題 | 裁決 | 理由 |', '| --: | :-- | :-- | :-- | :-- | :-- |']
     for i, f in enumerate(data['findings'], 1):
         where = f['file'] + (f':{f["line"]}' if f.get('line') else '')
         lines.append(f'| {i} | {SEVERITY.get(f["severity"], f["severity"])} | `{cell(where)}` '
                      f'| {cell(f.get("title"))} | 待裁決 |  |')
-    lines += ['', '裁決只能填：採納、不採納、延後到 M<n>；不採納與延後都要寫理由。', '']
+    lines += ['', '裁決只能填：採納、不採納、延後到 M<n>；不採納與延後都要寫理由。']
     return '\n'.join(lines) + '\n'
 
 
@@ -133,8 +133,8 @@ def review(args):
     apply_diff = None
 
     if args.pr:
-        info = json.loads(rc.run(['gh', 'pr', 'view', str(args.pr), '--json', 'title,headRefOid'], cwd=repo).stdout)
-        diff = rc.run(['gh', 'pr', 'diff', str(args.pr)], cwd=repo).stdout
+        info = json.loads(rc.gh(['pr', 'view', str(args.pr), '--json', 'title,headRefOid'], cwd=repo).stdout)
+        diff = rc.gh(['pr', 'diff', str(args.pr)], cwd=repo).stdout
         rc.git(['fetch', '-q', remote, f'refs/pull/{args.pr}/head'], cwd=repo)
         head, title, label = info['headRefOid'], f'PR #{args.pr}「{info["title"]}」', f'pr-{args.pr}'
     elif task and not args.diff_base:
@@ -167,7 +167,12 @@ def review(args):
         rc.write_text(os.path.join(rd, 'note.md'), rc.read_text(args.note))
     lenses = [l for l in conf['lenses'] if l in LENS_TEXT] or list(LENS_TEXT)
     deny = list(profile['secrets'].get('deny_read') or []) + list(profile.get('worktree_copy') or [])
-    kb = '、'.join(f'`{p}`' for p in profile.get('knowledge_base') or []) or '（無）'
+    kb_files = list(profile.get('knowledge_base') or [])
+    kb = '、'.join(f'`{p}`' for p in kb_files) or '（無）'
+    # Absolute paths in the review worktree: the run-dir paths in the prompt point at the main checkout,
+    # and a reviewer that guesses the project root from them is denied by the guard.
+    wt = os.path.join(rc.worktree_root(repo, profile), f'review-{label}')
+    kb_in_wt = '、'.join(f'`{os.path.join(wt, p)}`' for p in kb_files) or '（無）'
     rules = os.path.join(rd, 'reviewer-rules.md')
     rc.write_text(rules, rc.render_template('reviewer-rules.md', repo, secrets='、'.join(f'`{p}`' for p in deny),
                                             knowledge_base=kb))
@@ -175,10 +180,10 @@ def review(args):
     rc.write_text(schema_path, json.dumps(schema(lenses), ensure_ascii=False))
     language = '繁體中文' if profile['language'].get('docs', 'zh-TW').lower().startswith('zh') else 'English'
     prompt = rc.render_template('prompts/review.md', repo, title=title, rules=rules, diff=diff_path, spec=spec_ref,
-                                note=note_ref, knowledge_base=kb, lens_count=len(lenses), language=language,
+                                note=note_ref, knowledge_base=kb_in_wt, worktree=wt, lens_count=len(lenses),
+                                language=language,
                                 lenses='\n'.join(f'   {i}. {LENS_TEXT[l]}' for i, l in enumerate(lenses, 1)))
 
-    wt = os.path.join(rc.worktree_root(repo, profile), f'review-{label}')
     if os.path.isdir(wt):
         rc.git(['worktree', 'remove', '--force', wt], cwd=repo, check=False)
     os.makedirs(os.path.dirname(wt), exist_ok=True)
@@ -214,19 +219,27 @@ def review(args):
     rc.write_text(os.path.join(rd, 'review.json'), json.dumps(data, ensure_ascii=False, indent=2))
     report_path = os.path.join(rd, 'review.md')
     rc.write_text(report_path, report(title, result.model, data, verdict))
+    counts = {s: sum(1 for f in data['findings'] if f.get('severity') == s) for s in ('blocker', 'major', 'minor')}
+    out = {'review': label, 'round': round_no, 'verdict': verdict, 'model_verdict': data['model_verdict'],
+           'counts': counts, 'summary': data.get('summary'), 'report': report_path, 'posted': False}
+    comment_url = None
+    if args.post and args.pr:
+        # A failed post must not hide the verdict: report the error next to the result instead of raising.
+        proc = rc.gh(['pr', 'comment', str(args.pr), '--body-file', report_path], cwd=repo, check=False)
+        if proc.returncode == 0:
+            out['posted'] = True
+            comment_url = (proc.stdout.strip().splitlines() or [None])[-1]
+            out['comment_url'] = comment_url
+        else:
+            out['post_error'] = (proc.stderr or proc.stdout).strip()[-800:]
     ledger = os.path.abspath(args.ledger) if args.ledger else os.path.join(base_dir, 'ledger.md')
     if not os.path.exists(ledger):
-        rc.write_text(ledger, f'# 審查裁決紀錄：{title}\n\n')
+        rc.write_text(ledger, f'# 審查裁決紀錄：{title}\n')
+    source = os.path.relpath(report_path, repo).replace('\\', '/')
     with open(ledger, 'a', encoding='utf-8', newline='\n') as f:
-        f.write('\n' + ledger_section(round_no, result.model, data, verdict, os.path.relpath(report_path, repo)))
-    posted = False
-    if args.post and args.pr:
-        rc.run(['gh', 'pr', 'comment', str(args.pr), '--body-file', report_path], cwd=repo)
-        posted = True
-    counts = {s: sum(1 for f in data['findings'] if f.get('severity') == s) for s in ('blocker', 'major', 'minor')}
-    rc.emit({'review': label, 'round': round_no, 'verdict': verdict, 'model_verdict': data['model_verdict'],
-             'counts': counts, 'summary': data.get('summary'), 'report': report_path, 'ledger': ledger,
-             'posted': posted, 'agy': result.summary(), 'guard_denials': denials})
+        f.write('\n' + ledger_section(round_no, result.model, data, verdict, source, comment_url))
+    out.update(ledger=ledger, agy=result.summary(), guard_denials=denials)
+    rc.emit(out)
     return rc.EXIT_OK
 
 

@@ -63,7 +63,11 @@ Definition of Done（/rgs-pr 里程碑）：G1–G7 通過，PR 開好並交給�
 
 - 互不相依的里程碑可以各自 `prepare`（各自一個 worktree），但同時只讓一個 Gemini 執行，避免額度與注意力分散。
 - 相依的里程碑用 `prepare --stack-on <前一個任務>`，PR 的 base 會是前一個分支，PR 內文要註明先合併哪一個。
-- 前一個 PR 合併時如果刪除了分支，GitHub 會自動關閉堆疊在上面的 PR。合併前先用 `gh pr edit <N> --base main` 改掉 base，或在合併後立刻 rebase 並開新 PR。
+- 前一個 PR 合併後，對每個堆疊在上面的任務執行 `rgs.py retarget --task <子任務>`：
+  - 它先確認父 PR 已經 MERGED（沒合併就拒絕），再用 `gh pr edit` 把子 PR 的 base 改成 profile 的 `base_branch`，並把任務的 base 改成 `<remote>/<base_branch>`，之後 `diff`、`fix --fresh` 就不再依賴父分支。
+  - 父 PR 用 merge commit 合併時，子分支不用動。用 squash 或 rebase 合併時，父分支原本的 commit 不在 base 裡，子 PR 的 diff 會重複出現父 PR 的變更；retarget 會只把子任務自己的 commit rebase 到 base，再用 `--force-with-lease` 推回同一個分支（只有遠端還停在上次 ship 的位置時才會覆蓋）。
+  - 一定要做：父分支沒刪時，子 PR 仍指向已合併的父分支，這時直接合併子 PR 只會合進父分支，不會進 base。
+- GitHub 的行為（[官方文件](https://docs.github.com/en/pull-requests/how-tos/commit-changes/managing-branches-within-your-repository)）：父 PR 合併**之後**刪除父分支，GitHub 會把以它為 base 的開啟中 PR 自動改到父 PR 的 base；但在父 PR 還開著時刪除分支，會把相關的 PR 關掉。所以遠端的父分支要等合併並 retarget 之後才刪。
 
 ## 需求追溯
 
@@ -73,7 +77,11 @@ Definition of Done（/rgs-pr 里程碑）：G1–G7 通過，PR 開好並交給�
 ## 發佈（/rgs-pr release）
 
 1. auditor sub-agent 唯讀稽核文件與程式是否一致：測試數、版本號、指令、路徑、機密、過時描述。
-2. 稽核出的問題由 finisher 修正；版本號變更由 Gemini 依小型 spec 實作（屬於產品檔案）。
+2. 稽核出的問題由 finisher 修正；版本號變更由 Gemini 依小型 spec 實作（屬於產品檔案）。專案沒有版本號檔案（版本只存在 tag）時略過這步與下一步。
 3. 版本 PR 經 `review.py` 審查後，交給使用者合併。
-4. 從合併後的 commit 建置產物，計算 SHA-256（`certutil -hashfile <檔案> SHA256` 或 `sha256sum`），依 `templates/release-notes.md` 撰寫 release notes，並用 `secret_scan.py --files` 掃描。
-5. **`gh release create` 會對外公開：執行前先把版本號、產物與 notes 給使用者確認。**
+4. 從合併後的 commit 建置產物，計算 SHA-256（`certutil -hashfile <檔案> SHA256` 或 `sha256sum`），依 `templates/release-notes.md` 撰寫 release notes，並用 `secret_scan.py --files` 掃描 notes 與實際發佈的檔案（掃整個 repo 可能命中文件裡刻意寫的假金鑰）。
+   - 沒有建置步驟的專案（例如 skill、腳本），產物用 `git archive --format=zip --prefix=<名稱>/ -o <zip> <commit>:<資料夾>`；同一個 commit 產生的 zip 位元組相同，SHA-256 可重現。
+   - 產物與 notes 放在 `.rgs/runs/release-<版本>/`，不要放 Temp。
+5. **`gh release create` 會對外公開：執行前先把版本號、產物、SHA-256 與 notes 給使用者確認。**
+   - 一律加 `--target <合併後的 commit>`：不要依賴預設分支（預設分支不一定是 base，也可能已經前進）。
+   - 使用者還不想公開，或版本號已經保留給之後的里程碑時，用 `--draft`：只有協作者看得到，按下發佈前不會建立 tag。建立後用 `gh release download` 下載產物，比對 SHA-256。
