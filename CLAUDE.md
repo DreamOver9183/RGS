@@ -71,6 +71,10 @@
 - agy hook 沒有執行、agy 以 `invalid UTF-8` 錯誤結束 → Windows 上 hook 以 `cmd /c` 執行，沒有空白的路徑加了引號就會失敗 → 執行檔路徑只在含空白時加引號。
 - 少傳 `--model` 時呼叫的是 Claude → 使用者的 agy 預設模型是 Claude Opus → `--model` 必傳，且必須以 `gemini-` 開頭。
 
+### Python
+
+- 腳本用 `python -I` 執行時 import 同資料夾或 rgs-core 的模組失敗 → Python 3.11 起 `-I` 不會把腳本所在資料夾放進 `sys.path` → 每個腳本與會被匯入的模組，自己把所在資料夾（rgs-facet 另外加上 `../rgs-core/scripts`）插進 `sys.path`，不依賴呼叫端。
+
 ### Windows 終端機
 
 - 在 Git Bash 用 `python -c` 讀含中文的管道輸出會變亂碼 → 預設用系統編碼（cp950）解碼 → 讀 `sys.stdin.buffer` 再用 UTF-8 解碼，輸出前 `sys.stdout.reconfigure(encoding="utf-8")`。

@@ -14,8 +14,8 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 
 | 里程碑 | 狀態 | 分支／PR | 測試數 | 備註 |
 | :-- | :-- | :-- | :-- | :-- |
-| M1 | 未開始 | | | 搬入 rgs-facet 專屬模組 |
-| M2 | 未開始 | | | `call_agy` 強化 |
+| M1 | 已合併 | `feat/m1-facet-modules`／#1 | rgs-core 84、rgs-facet 61 | 搬入 rgs-facet 專屬模組；Claude 審查 0 輪修正；合併閘門 PASS，無意見 |
+| M2 | 實作中 | `feat/m2-call-agy-hardening` | | `call_agy` 強化 |
 | M3 | 未開始 | | | 封閉唯讀、快照、doctor |
 | M4 | 未開始 | | | `facet_review.py` |
 | M5 | 未開始 | | | rgs-facet skill 本體、安裝 |
@@ -206,7 +206,7 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 | 需求 | 里程碑 | 測試 | PR |
 | :-- | :-- | :-- | :-- |
-| R-1、R-2、R-3 | M1 | `rgs-facet/tests/test_verdict*.py`、`test_prompt.py`；`rgs-core/tests/test_scope_secret.py` | |
+| R-1、R-2、R-3 | M1 | `rgs-facet/tests/test_verdict*.py`、`test_prompt.py`；`rgs-core/tests/test_scope_secret.py` | #1 |
 | R-4 | M2 | `rgs-core/tests/test_common.py` | |
 | R-5、R-6 | M3 | `rgs-core/tests/test_guard.py`、`test_common.py`、`test_doctor.py` | |
 | R-7 | M4 | `rgs-facet/tests/test_facet_review.py` | |
@@ -228,3 +228,4 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | 版本 | 日期 | 變更 |
 | :-- | :-- | :-- |
 | v1 | 2026-10-17 | 初版：依使用者核准的合併計畫 |
+| v1.1 | 2026-10-17 | M1 已合併（PR #1） |
