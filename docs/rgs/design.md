@@ -16,8 +16,8 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | :-- | :-- | :-- | :-- | :-- |
 | M1 | 已合併 | `feat/m1-facet-modules`／#1 | rgs-core 84、rgs-facet 61 | 搬入 rgs-facet 專屬模組；Claude 審查 0 輪修正；合併閘門 PASS，無意見 |
 | M2 | 已合併 | `feat/m2-call-agy-hardening`／#2 | rgs-core 96 | `call_agy` 強化；Claude 審查 1 輪修正（`--log-file` 不能指向主 checkout）；合併閘門第 1 輪 PASS、5 個次要意見採納 4 條（fix-2），第 2 輪 PASS；sandbox 真 agy 實測通過 |
-| M3 | 實作中 | `feat/m3-sealed-snapshot-doctor`（堆疊在 M2） | | 封閉唯讀、快照、doctor |
-| M4 | 未開始 | | | `facet_review.py` |
+| M3 | 已合併 | `feat/m3-sealed-snapshot-doctor`／#3（M2 合併後已 retarget 到 main） | rgs-core 122 | 封閉唯讀、快照、doctor；Claude 審查 1 輪修正（`SnapshotTest.setUp` 少建資料夾）；真 agy sealed 實測通過；合併閘門第 1 輪 PASS、2 個次要意見都採納（fix-2），第 2 輪 PASS |
+| M4 | 審查中 | `feat/m4-facet-review`（M3 合併後合併最新 main） | rgs-core 127、rgs-facet 85 | `facet_review.py`；Claude 審查 0 輪修正；真 agy（Gemini 4 Argon）實測通過 |
 | M5 | 未開始 | | | rgs-facet skill 本體、安裝 |
 | M6 | 未開始 | | | 文件與 RGS 整合 |
 
@@ -208,7 +208,7 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | :-- | :-- | :-- | :-- |
 | R-1、R-2、R-3 | M1 | `rgs-facet/tests/test_verdict*.py`、`test_prompt.py`；`rgs-core/tests/test_scope_secret.py` | #1 |
 | R-4 | M2 | `rgs-core/tests/test_common.py` | #2 |
-| R-5、R-6 | M3 | `rgs-core/tests/test_guard.py`、`test_common.py`、`test_doctor.py` | |
+| R-5、R-6 | M3 | `rgs-core/tests/test_guard.py`、`test_common.py`、`test_doctor.py` | #3 |
 | R-7 | M4 | `rgs-facet/tests/test_facet_review.py` | |
 | R-8、R-9、R-10 | M5 | `rgs-facet/tests/test_skill_md.py`、`test_guard_agy.py` | |
 | R-11 | M6 | auditor 稽核 | |
@@ -225,6 +225,9 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 5. 交給 agy 的參數（包括 `--log-file` 這類輸出檔路徑）不能出現主 checkout 的路徑：先寫到系統暫存目錄，結束後再複製（出處：PR #2 fix-1）。
 6. 每個測試情境都要真的觸發到：聲稱檢查「不帶 save_as」的測試，必須真的做那次呼叫（出處：PR #2 fix-1）。
 7. 規格要求的每個行為都要有斷言，包括逾時等次要路徑上的欄位（例如逾時也要填 `reported_model`）與「取最後一個」這類邊界（出處：PR #2 fix-2）。
+8. 測試的 `setUp` 要先建立它用到的資料夾：`helpers.make_repo(root)` 以 `root` 當工作目錄執行 git，`root` 不存在時 Windows 回報 `WinError 267`（出處：PR #3 fix-1）。
+9. 錯誤案例要斷言訊息內容，這條在 PR #2、#3 的合併閘門都被提出：寫 spec 時明列「每個錯誤案例斷言哪段訊息」（出處：PR #2、#3）。
+10. 多個提早結束的分支不要各自以長參數列呼叫同一個收尾函式；用一個結果 dict 或例外集中收尾（出處：M4 審查，未開修正輪）。
 
 ## 修訂歷史
 
@@ -233,3 +236,4 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | v1 | 2026-10-17 | 初版：依使用者核准的合併計畫 |
 | v1.1 | 2026-10-17 | M1 已合併（PR #1） |
 | v1.2 | 2026-10-17 | M2 已合併（PR #2）；教訓 5–7 |
+| v1.3 | 2026-10-17 | M3 已合併（PR #3）；教訓 8–10 |

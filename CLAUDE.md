@@ -51,6 +51,7 @@
 - Commit：`type(scope): 摘要`（繁體中文）；內文說明原因。scope 用 skill 或模組名稱，例如 `rgs-core`、`rgs-pr`、`review`。
 - 分支：`feat/…`、`fix/…`、`chore/…`。
 - 測試：放在各 skill 的 `tests/`，檔名 `test_<模組>.py`，用 `unittest.TestCase`。測試用 `os.path.dirname(__file__)` 推算路徑，把腳本資料夾加進 `sys.path`（見 `rgs-core/tests/helpers.py`）。
+- `helpers.make_repo(root)` 以 `root` 當工作目錄執行 git：測試要先 `os.makedirs(root)`，否則 Windows 回報 `WinError 267`。
 - 測試不呼叫真的 agy 或 gh：用 `tests/fake_agy.py`（環境變數 `RGS_AGY`）與 `tests/fake_gh.py`（`RGS_GH`），不消耗額度。
 - `install.ps1` 只用 ASCII：Windows PowerShell 5.1 會用 ANSI 字碼頁讀沒有 BOM 的腳本。
 - `.gitattributes` 強制 LF。
@@ -72,6 +73,10 @@
 - 少傳 `--model` 時呼叫的是 Claude → 使用者的 agy 預設模型是 Claude Opus → `--model` 必傳，且必須以 `gemini-` 開頭（`call_agy` 的 `check_agy_args` 會擋下其他模型）。
 - 逾時被強制結束後仍留下程序 → agy 會另外啟動 language server 子程序，只結束 agy 本身不夠 → `call_agy` 以新的程序群組啟動，逾時時終止整個程序樹（`kill_tree`）。
 - 審查者從參數推測出主 checkout 的位置 → 只要參數出現主 checkout 的路徑（包括 `--log-file`）就可能洩漏 → 輸出檔先寫系統暫存目錄，agy 結束後再複製到 run 目錄。
+
+### rgs 流程（開發本 repo 時）
+
+- 堆疊的里程碑缺少剛合併的另一個里程碑 → 它的分支源自那次合併之前的 main（例如 M2 在 M1 合併前開出，M3、M4 疊在 M2 上）→ `prepare` 後確認需要的模組都在，缺少時在任務 worktree 合併 `origin/main`；父 PR 合併後、開子 PR 前再合併一次最新的 `origin/main`，PR 的 diff 才只含自己的改動。
 
 ### Python
 
