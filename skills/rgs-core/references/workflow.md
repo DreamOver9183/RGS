@@ -83,5 +83,6 @@ Definition of Done（/rgs-pr 里程碑）：G1–G7 通過，PR 開好並交給�
    - 沒有建置步驟的專案（例如 skill、腳本），產物用 `git archive --format=zip --prefix=<名稱>/ -o <zip> <commit>:<資料夾>`；同一個 commit 產生的 zip 位元組相同，SHA-256 可重現。
    - 產物與 notes 放在 `.rgs/runs/release-<版本>/`，不要放 Temp。
 5. **`gh release create` 會對外公開：執行前先把版本號、產物、SHA-256 與 notes 給使用者確認。**
-   - 一律加 `--target <合併後的 commit>`：不要依賴預設分支（預設分支不一定是 base，也可能已經前進）。
+   - 一律加 `--target <完整 SHA>`：不要依賴預設分支（預設分支不一定是 base，也可能已經前進）。
+   - `--target` 只接受完整的 40 字元 SHA，先用 `git rev-parse <合併後的 commit>` 取得；給短 SHA 時 GitHub API 回 HTTP 422 `Release.target_commitish is invalid`。
    - 使用者還不想公開，或版本號已經保留給之後的里程碑時，用 `--draft`：只有協作者看得到，按下發佈前不會建立 tag。建立後用 `gh release download` 下載產物，比對 SHA-256。

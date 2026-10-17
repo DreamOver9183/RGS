@@ -113,7 +113,7 @@ argument-hint: init | plan <需求> | run M<n> | merged <PR#> | release <版本>
 2. 修正文件。
 3. 版本號由 Gemini 依小型 spec 實作，經審查後交給使用者合併。沒有版本號檔案的專案略過。
 4. 從合併後的 commit 建置產物（沒有建置步驟就用 `git archive`），計算 SHA-256，寫 release notes，並用 `secret_scan.py --files` 掃描 notes 與發佈的檔案。
-5. **建立 GitHub release 會對外公開：執行 `gh release create --target <commit>` 前，先把版本號、產物、SHA-256 與 release notes 給使用者確認，並提供 `--draft`（不公開、不建 tag）的選項。**
+5. **建立 GitHub release 會對外公開：執行 `gh release create --target <完整 SHA>` 前，先把版本號、產物、SHA-256 與 release notes 給使用者確認，並提供 `--draft`（不公開、不建 tag）的選項。** `--target` 要用 `git rev-parse <commit>` 取得的完整 SHA，短 SHA 會回 HTTP 422。
 
 ## status
 
