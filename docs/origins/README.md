@@ -12,3 +12,4 @@
 | `android_class/memory-multi-agent-workflow.md` | 使用者確立的分工 | `roles.md` |
 | `rimtainame/agy_review.py`、`agy_translate.py`、`name_rules.py` | PR 審查與大量翻譯腳本 | `scripts/review.py`、`batch.py` |
 | `rimtainame/CLAUDE-sop-excerpt.md` | RimTaiName 的開發 SOP | `references/workflow.md` |
+| `facet/handoff.md`、`PLAN.md`、`preflight-results.md`、`requirements.md`、`design.md` | Facet skill（另一個 repo）的交接文件、實作計畫、agy 預檢結果、需求與設計；併入 RGS 前的版本 | `skills/rgs-facet/`、`docs/rgs/` |
