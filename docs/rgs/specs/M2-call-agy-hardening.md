@@ -112,9 +112,9 @@ except subprocess.TimeoutExpired:
 
 ### 實際模型 `reported_model`
 
-- `call_agy` 一律加上 `--log-file <path>`：
-  - 有 `save_as` 時，`path = save_as + '.log'`，保留下來。
-  - 沒有 `save_as` 時，用 `tempfile.mkstemp(prefix='rgs_agy_', suffix='.log')` 建暫存檔（記得關掉 fd），讀完後在 `finally` 刪除。
+- `call_agy` 一律加上 `--log-file <path>`。**（fix-1 修訂）** `path` 一律是 `tempfile.mkstemp(prefix='rgs_agy_', suffix='.log')` 建立的系統暫存檔（記得關掉 fd），不能是 `save_as + '.log'`：agy 的參數不能出現主 checkout 的路徑（`agy-cli.md`）。
+  - agy 結束後（正常結束與逾時都一樣）先取 `reported_model`；有 `save_as` 時再把暫存 log 複製到 `save_as + '.log'`。
+  - 暫存 log 一律在 `finally` 刪除，`check_agy_args` 失敗時也一樣。
 - `reported_model_from_log(path)`：用 UTF-8（`errors='replace'`）讀檔，找出所有 `label="…"`（regex `label="([^"]*)"`），回傳**最後一個**；檔案不存在、讀不到或沒有 label 時回傳 `None`。
 - `AgyResult.__init__` 新增 `reported_model=None` 參數與屬性；`summary()` 加上 `'reported_model'`。正常結束與逾時兩種情況都要填（逾時時 log 可能已有 label）。
 - 這是 agy 用戶端解析後送出的模型名稱（例如 `Gemini 4 Argon (High)`），不是伺服器回報的；在 `agy-cli.md` 寫明這點。
@@ -147,7 +147,7 @@ except subprocess.TimeoutExpired:
      - `role='reviewer'` 加 `mode='accept-edits'` 丟 `RgsError`；`role='implementer'` 加 `mode='accept-edits'` 正常回傳。
      - 每次呼叫的 argv（替身記在 `calls/*.json`）含 `--log-file`。
      - `reported_model`：預設是 `'Fake gemini-test-1'`；`FAKE_AGY_LABEL='Gemini 4 Argon (High)'` 時是該值；`FAKE_AGY_LABEL=''` 時是 `None`；`summary()` 含 `reported_model`。
-     - 有 `save_as` 時 `save_as + '.log'` 存在；沒有 `save_as` 時，替身收到的 `--log-file` 路徑在呼叫結束後已不存在。
+     - 有 `save_as` 時 `save_as + '.log'` 存在且含 label；兩種呼叫（有、沒有 `save_as`）替身收到的 `--log-file` 都是系統暫存路徑，不在 run 目錄底下，呼叫結束後已不存在（fix-1 修訂）。
    - `KillTreeTest`：用 `sleep_child` 情境呼叫 `rc.call_agy(..., timeout_s=1, grace_s=2)`，斷言：
      - 回傳 `kind == 'timeout'`，整個呼叫在 30 秒內結束；
      - 讀 `pids.json`，父程序與子程序在 10 秒內都不再存在。

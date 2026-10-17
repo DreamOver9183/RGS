@@ -164,6 +164,7 @@ class CallAgyTest(unittest.TestCase):
         with self.assertRaises(rc.RgsError) as ctx:
             rc.call_agy(prompt='hi', cwd=self.tmp.path, model='claude-opus-5-5')
         self.assertEqual(ctx.exception.code, 2)
+        self.assertIn('claude-opus-5-5', str(ctx.exception))
         calls_dir = os.path.join(self.tmp.path, 'state', 'calls')
         self.assertTrue(not os.path.exists(calls_dir) or len(os.listdir(calls_dir)) == 0)
 
@@ -171,6 +172,8 @@ class CallAgyTest(unittest.TestCase):
         with self.assertRaises(rc.RgsError) as ctx:
             self.call('ok', role='reviewer', mode='accept-edits')
         self.assertEqual(ctx.exception.code, 2)
+        self.assertIn('--mode', str(ctx.exception))
+        self.assertIn('reviewer', str(ctx.exception))
 
         result = self.call('ok', role='implementer', mode='accept-edits')
         self.assertTrue(result.ok)
@@ -224,6 +227,37 @@ class CallAgyTest(unittest.TestCase):
         self.assertFalse(os.path.exists(temp_log2))
 
 
+class ReportedModelFromLogTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TempDir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_reported_model_returns_last_label(self):
+        path = os.path.join(self.tmp.path, 'multi_labels.log')
+        content = (
+            'I1017 00:00:00.000000 1 model.go:1] Propagating: label="A"\n'
+            'Some irrelevant log text without label\n'
+            'I1017 00:00:01.000000 1 model.go:2] Propagating: label="B (High)"\n'
+            'I1017 00:00:02.000000 1 model.go:3] Propagating: label="C"\n'
+        )
+        write(path, content)
+        self.assertEqual(rc.reported_model_from_log(path), 'C')
+
+    def test_reported_model_no_label(self):
+        path = os.path.join(self.tmp.path, 'no_label.log')
+        write(path, 'Some irrelevant log text\nAnother line without label\n')
+        self.assertIsNone(rc.reported_model_from_log(path))
+
+    def test_reported_model_nonexistent_path(self):
+        self.assertIsNone(rc.reported_model_from_log(os.path.join(self.tmp.path, 'nonexistent.log')))
+
+    def test_reported_model_none_and_empty_path(self):
+        self.assertIsNone(rc.reported_model_from_log(None))
+        self.assertIsNone(rc.reported_model_from_log(''))
+
+
 class KillTreeTest(unittest.TestCase):
     def setUp(self):
         self.tmp = TempDir()
@@ -248,6 +282,8 @@ class KillTreeTest(unittest.TestCase):
                              timeout_s=1, grace_s=2)
         elapsed = time.time() - started
         self.assertEqual(result.kind, 'timeout')
+        self.assertEqual(result.reported_model, 'Fake gemini-test-1')
+        self.assertEqual(result.summary()['reported_model'], 'Fake gemini-test-1')
         self.assertLess(elapsed, 30)
 
         pids_file = os.path.join(self.state, 'pids.json')
