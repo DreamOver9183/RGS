@@ -10,7 +10,9 @@ if HERE not in sys.path:
 
 SPLIT_PATTERN = re.compile(r'&&|\|\||[;\n`|]|\$\(|(?<!&)&(?!&)')
 ENV_VAR_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|\'[^\']*\'|\S+)(?:\s+|$)')
-CALL_EXEC_ENV_PATTERN = re.compile(r'^(?:call|exec|env)(?:\s+|$)', re.IGNORECASE)
+CALL_EXEC_ENV_PATTERN = re.compile(
+    r'^(?:call|exec|env|command|eval|time|nohup|sudo)(?:\s+|$)', re.IGNORECASE
+)
 
 
 def is_direct_agy(command):
@@ -37,7 +39,11 @@ def is_direct_agy(command):
             if seg.startswith('&'):
                 seg = seg[1:]
                 continue
-            # Strip leading call, exec, env
+            # Strip leading subshell or group braces: ( or {
+            if seg.startswith('(') or seg.startswith('{'):
+                seg = seg[1:]
+                continue
+            # Strip leading call, exec, env, command, eval, time, nohup, sudo
             m = CALL_EXEC_ENV_PATTERN.match(seg)
             if m:
                 seg = seg[m.end():]
@@ -51,14 +57,23 @@ def is_direct_agy(command):
         # Extract first word
         if seg.startswith('"'):
             m = re.match(r'^"([^"]*)"', seg)
-            word = m.group(1) if m else seg[1:]
+            inner = m.group(1) if m else seg[1:]
+            word = inner.split(None, 1)[0] if inner.split() else ''
+            inner_token = inner.replace('\\', '/').split('/')[-1].lower()
+            if inner_token in ('agy', 'agy.exe'):
+                word = inner
         elif seg.startswith("'"):
             m = re.match(r"^'([^']*)'", seg)
-            word = m.group(1) if m else seg[1:]
+            inner = m.group(1) if m else seg[1:]
+            word = inner.split(None, 1)[0] if inner.split() else ''
+            inner_token = inner.replace('\\', '/').split('/')[-1].lower()
+            if inner_token in ('agy', 'agy.exe'):
+                word = inner
         else:
             word = seg.split(None, 1)[0]
-            word = word.rstrip(')')
-            word = word.strip('\'"')
+
+        word = word.rstrip(');}')
+        word = word.strip('\'"')
 
         word = word.replace('\\', '/')
         token = word.split('/')[-1].lower()

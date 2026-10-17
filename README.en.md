@@ -287,13 +287,13 @@ The exact path is included in the review summary for inspection.
 
 **Plan mode permissions**
 
-A skill's `allowed-tools` is only active during the turn it is invoked. Across multiple turns in Plan mode, each review submission may prompt for permission. You can add the following rule to `permissions.allow` in your project or global `.claude/settings.json` to auto-allow it:
+The review loop usually finishes within the same turn, where `allowed-tools` pre-approves execution without prompting for permission. Only when the loop spans across multiple turns (for example, pausing to ask you a question) might a confirmation prompt appear. In that case, you can add the following rule to `permissions.allow` in your project or global `.claude/settings.json` to auto-allow it:
 
 ```json
-"Bash(python -I <your-home-dir>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"
+"Bash(python -I C:/Users/<user>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"
 ```
 
-(Replace `<your-home-dir>` with your home directory; quote the path if it contains spaces. The rule must match the command Claude actually runs character for character. The exact form `${CLAUDE_SKILL_DIR}` expands to has not been verified yet; if you are still prompted, adjust the rule to the command shown in the prompt.)
+(`${CLAUDE_SKILL_DIR}` expands to this forward-slash path in testing; replace `<user>` with your username, or use the corresponding home directory path on macOS / Linux. Quote the path if it contains spaces. The rule must match the command Claude actually runs character for character; if you are still prompted, adjust the rule to the command shown in the prompt.)
 
 **Automatic triggering and budget adjustment**
 
@@ -362,7 +362,7 @@ Claude never writes product code itself without your consent, and never force-pu
   1. **Script-enforced parameters**: `facet_review.py` validates and locks arguments, banning flags like `--mode`, `--sandbox`, `--add-dir`, `--continue`, and enforcing `--model` starts with `gemini-`.
   2. **Sealed temporary workspace**: The reviewer runs in an isolated, empty temporary directory with a sealed PreToolUse hook allowing only `finish` and `wait`, strictly blocking all tools (reading, writing, shell, subagents).
   3. **Snapshot diff comparison**: Pre- and post-call snapshots of both the repo and workspace; any detected modifications immediately trigger `workspace_modified` and halt.
-  4. **Claude-side guard**: PreToolUse hook `guard_agy.py` blocks direct execution of raw `agy` by Claude.
+  4. **Claude-side guard**: PreToolUse hook `guard_agy.py` blocks direct execution of raw `agy` by Claude. Limitation: active only when rgs-facet is installed in user scope (`~/.claude/skills/`, the default of `install.ps1`); this serves as a second line of defense, while read-only safety on the agy side is guaranteed by the sealed guard.
   - **Out of scope**: Files ignored by `.gitignore` and files outside the repo are not tracked by snapshots; if you edit project files during review execution, the snapshot detects it and halts.
 - **No trust in self-reports**: agy can report SUCCESS on a timeout, a denied tool, or a subagent that never replied. The scripts judge success from the actual output, the git diff, the scope check and the test results.
 - **Secret scan**: before every commit, the staged diff is scanned for key patterns and protected file names. A hit stops the commit.
@@ -461,7 +461,7 @@ To adjust the workflow:
   - `/rgs-main`: implementation, fix rounds, and a rebase-then-push after origin moved
   - `/rgs-pr` on GitHub: opening PRs, stacked PRs, review comments, retarget, and a draft release
   - batch and digest
-- `rgs-facet`: unit tests and sealed workspace calls with real agy are verified; end-to-end Plan mode workflow and trigger tests await local validation; macOS / Linux not verified; whether `${CLAUDE_SKILL_DIR}` is expanded in hook commands awaits local test confirmation.
+- `rgs-facet`: installation, trigger tests (`/rgs-facet` trigger, natural phrasing 9/9, false triggers 0/10), end-to-end Plan mode trial runs, and guard (tested and blocking using `$HOME` path after the fix) have all been verified on Windows; macOS / Linux not verified.
 - agy upgrades can change its behaviour: tool names, the hook format, output fields. The verified behaviour is recorded in [`references/agy-cli.md`](skills/rgs-core/references/agy-cli.md); run `doctor.py` after an upgrade.
 - macOS / Linux are not verified yet.
 - The skills' internal documents and the prompt templates sent to Gemini are in Traditional Chinese. Set `language.docs` and `language.commits` to `en` to get English docs, commit messages and review reports in your project.

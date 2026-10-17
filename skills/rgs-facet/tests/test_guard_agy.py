@@ -38,6 +38,16 @@ class TestIsDirectAgy(unittest.TestCase):
             'env agy -p test',
             '& agy',
             'echo $(agy)',
+            # M7 新增語法案例：子 shell、群組指令、前綴指令
+            '(agy -p x)',
+            '( agy -p x )',
+            '{ agy -p x; }',
+            'command agy -p x',
+            'eval agy -p x',
+            'eval "agy -p x"',
+            'time agy --version',
+            'nohup agy -p x',
+            'sudo agy --version',
         ]
         for cmd in cases:
             with self.subTest(cmd=cmd):
@@ -60,6 +70,11 @@ class TestIsDirectAgy(unittest.TestCase):
             '',
             None,
             123,
+            # M7 新增放行案例
+            '(cd sub && ls)',
+            'command -v python',
+            'eval echo hi',
+            'time python -I x.py',
         ]
         for cmd in cases:
             with self.subTest(cmd=cmd):
@@ -89,25 +104,27 @@ class TestGuardAgySubprocess(unittest.TestCase):
 
     def test_direct_agy_denied(self):
         """直接呼叫 agy 應輸出 deny JSON，exit 0，且 reason 包含 facet_review.py。"""
-        payload = {
-            "tool_name": "Bash",
-            "tool_input": {"command": "agy -p 'test'"},
-        }
-        raw = json.dumps(payload).encode('utf-8')
-        proc = self.run_hook(raw)
-        self.assertEqual(proc.returncode, 0, "Check failed: guard_agy must exit 0 on deny")
-        stdout = proc.stdout.decode('utf-8', errors='replace').strip()
-        self.assertTrue(stdout, "Check failed: guard_agy must output JSON on deny")
-        data = json.loads(stdout)
-        hso = data.get('hookSpecificOutput', {})
-        self.assertEqual(hso.get('hookEventName'), 'PreToolUse')
-        self.assertEqual(hso.get('permissionDecision'), 'deny')
-        reason = hso.get('permissionDecisionReason', '')
-        self.assertIn(
-            'facet_review.py',
-            reason,
-            "Check failed: deny reason must mention 'facet_review.py' as instructed in rules",
-        )
+        for cmd in ["agy -p 'test'", "(agy -p x)"]:
+            with self.subTest(cmd=cmd):
+                payload = {
+                    "tool_name": "Bash",
+                    "tool_input": {"command": cmd},
+                }
+                raw = json.dumps(payload).encode('utf-8')
+                proc = self.run_hook(raw)
+                self.assertEqual(proc.returncode, 0, "Check failed: guard_agy must exit 0 on deny")
+                stdout = proc.stdout.decode('utf-8', errors='replace').strip()
+                self.assertTrue(stdout, "Check failed: guard_agy must output JSON on deny")
+                data = json.loads(stdout)
+                hso = data.get('hookSpecificOutput', {})
+                self.assertEqual(hso.get('hookEventName'), 'PreToolUse')
+                self.assertEqual(hso.get('permissionDecision'), 'deny')
+                reason = hso.get('permissionDecisionReason', '')
+                self.assertIn(
+                    'facet_review.py',
+                    reason,
+                    "Check failed: deny reason must mention 'facet_review.py' as instructed in rules",
+                )
 
     def test_allowed_bash_command(self):
         """合法指令放行：stdout 為空，exit 0。"""

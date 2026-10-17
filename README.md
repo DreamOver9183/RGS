@@ -280,13 +280,13 @@ python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
 
 **Plan 模式的權限**
 
-skill 的 `allowed-tools` 只在呼叫的那一回合有效。進入 Plan 模式後跨回合送審時，每次呼叫腳本可能都會跳出權限確認。可將下列規則加入專案或全域 `.claude/settings.json` 的 `permissions.allow` 清單以自動放行：
+審查迴圈通常在同一回合內完成，`allowed-tools` 已預先核准，實測不會跳出權限確認。只有迴圈跨回合（例如中途停下來問你）時才可能要確認，這時可以把下列規則加進專案或全域 `.claude/settings.json` 的 `permissions.allow` 清單以自動放行：
 
 ```json
-"Bash(python -I <你的家目錄>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"
+"Bash(python -I C:/Users/<使用者>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"
 ```
 
-（請將 `<你的家目錄>` 換成你的家目錄；路徑含空白時要加引號。規則必須和 Claude 實際執行的指令寫法一字不差；`${CLAUDE_SKILL_DIR}` 展開後的確切格式尚待本機驗收確認，若仍跳出確認，請依確認視窗中顯示的指令調整規則。）
+（`${CLAUDE_SKILL_DIR}` 實測展開成這種正斜線路徑，請將 `<使用者>` 換成你的使用者名稱；macOS／Linux 換成對應的家目錄路徑。路徑含空白時要加引號。規則必須和 Claude 實際執行的指令寫法一字不差，若仍跳出確認，請依確認視窗中顯示的指令調整規則。）
 
 **自動觸發與預算調整**
 
@@ -355,7 +355,7 @@ Claude 不會在沒有你同意的情況下親手寫產品程式碼，也不會 
   1. **參數由腳本寫死並檢查**：`facet_review.py` 檢查並寫死所有參數，禁止 `--mode`、`--sandbox`、`--add-dir`、`--continue` 等旗標，強制 `--model` 必須以 `gemini-` 開頭。
   2. **空的暫存工作區與 sealed guard**：審查者的工作區是完全獨立的空暫存資料夾，工作區放 PreToolUse hook，sealed guard 只放行 `finish` 與 `wait`，嚴格封鎖讀檔、寫檔、shell 與子代理。
   3. **呼叫前後快照比對**：送審前後比對專案與工作區快照，偵測到任何檔案異動即中止（`workspace_modified`）。
-  4. **Claude 端防護**：Claude 端的 `guard_agy.py` 擋下直接執行未經包裝的 `agy`。
+  4. **Claude 端防護**：Claude 端的 `guard_agy.py` 擋下直接執行未經包裝的 `agy`。限制：只在 rgs-facet 安裝於個人層（`~/.claude/skills/`，`install.ps1` 的預設）時生效；它是第二道防線，agy 端的唯讀由 sealed guard 保證。
   - **未覆蓋範圍**：`.gitignore` 的檔案、專案以外的檔案不在快照比對範圍；你自己同時改檔會被當成改動。
 - **不相信自我回報**：agy 在 timeout、工具被拒、子代理沒回報時都可能回報 SUCCESS。腳本以實際產出、git diff、範圍檢查與測試結果判斷成敗。
 - **Secret scan**：commit 前掃描 staged diff 中的金鑰樣式與受保護檔名；命中就不 commit。
@@ -453,7 +453,7 @@ python -m unittest discover -s skills/rgs-facet/tests
   - `/rgs-main`：實作、修正輪、遠端前進時 rebase 後推送
   - `/rgs-pr`：在 GitHub 上開 PR、堆疊 PR、審查留言、retarget、draft release
   - batch 與 digest
-- rgs-facet 的實測狀態：單元測試與 sealed 工作區的真 agy 呼叫已驗證；Plan 模式完整流程、觸發測試待本機驗收；macOS／Linux 未驗證；hook 指令中 `${CLAUDE_SKILL_DIR}` 是否會被代入待實測。
+- rgs-facet 的實測狀態：安裝、觸發測試（`/rgs-facet` 觸發、自然語句 9/9、誤觸發 0/10）、Plan 模式完整試跑、guard（修正後以 `$HOME` 路徑實測擋下）都已在 Windows 驗證；macOS／Linux 未驗證。
 - agy 升級後，行為可能改變（工具名稱、hook 格式、輸出欄位）。已驗證的行為記錄在 [`references/agy-cli.md`](skills/rgs-core/references/agy-cli.md)，升級後建議先跑 `doctor.py` 再使用。
 - macOS／Linux 尚未驗證。
 - Gemini 的審查意見只是參考，最後都由 Claude 逐條裁決；最終要不要合併，由你決定。
