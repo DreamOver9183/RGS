@@ -211,6 +211,8 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 發現的問題開修正里程碑（M7 起），之後用 `/rgs-pr release` 發佈。
 
+**已發佈**：v1.0.0（2026-10-18，tag 指向 `da2b668`，公開）。附檔 `RGS-v1.0.0.zip`（`git archive` 完整 repo），SHA-256 `8f643e1ec4823ec3286d8f8bd9fb4fbc72e09cbba7eb06bf07c982ddcaa78a1e`；下載回來比對一致；發佈內容與 release notes 的機密掃描通過。
+
 本機驗收紀錄（2026-10-18）：
 
 | 項目 | 結果 | 備註 |
@@ -270,3 +272,4 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | v1.5 | 2026-10-18 | M5 已合併（PR #5）；教訓 12；排入 M7 的項目 |
 | v1.6 | 2026-10-18 | M6 已合併（PR #6）；M1–M6 全部完成，進入本機驗收 |
 | v1.7 | 2026-10-18 | 本機驗收紀錄；M7 已合併（PR #7）；教訓 13–14 |
+| v1.8 | 2026-10-18 | 發佈 v1.0.0 |
