@@ -55,6 +55,61 @@ review.py --diff-base REF [--head REF]             # 任意本地範圍
 
 審查在 detached worktree `<repo>.rgs/review-<label>` 進行。輸入檔（`pr.diff`、`spec.md`、`note.md`、`reviewer-rules.md`、`schema.json`）放在 worktree 內的 `.rgs-review/`（用 `.git/info/exclude` 排除），prompt 與 agy 參數只出現 worktree 內的路徑，guard 的讀取範圍也只有這個 worktree，審查者不會因為路徑而去讀主 checkout。審查結束後 worktree 會被移除；輸入檔副本、agy 輸出（`agy.prompt.md`、`agy.json`、`agy.err`）、`guard.log`、`review.json`、`review.md` 都留在 `.rgs/runs/<task>/review-<n>/`。
 
+## facet_review.py
+
+完成**一次送審**（一份計畫、一個角度、一輪），把結果整理成一行 JSON 印在 stdout，並在 run 目錄留下完整紀錄。只做一次送審，重試與多輪迴圈由 SKILL.md 負責。
+
+### 用法
+
+```text
+python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiability --round <N> --model <M>
+                                         [--timeout 300] [--session <ID>] [--run-dir <資料夾>] [--repo <專案資料夾>] [--prior-stdin]
+```
+
+### 參數表
+
+| 參數 | 說明 |
+| :-- | :-- |
+| `--plan-file` | 必填。計畫檔；只送出 `<!-- facet:appendix -->` 之前的內容 |
+| `--lens` | 必填。`prompt.LENSES` 之一（`logic`、`gaps`、`verifiability`） |
+| `--round` | 必填。從 1 起算的整數 |
+| `--model` | 必填。agy 模型 ID（必須是 `gemini-` 開頭） |
+| `--timeout` | 秒，預設 300。正整數 |
+| `--session` | 預設取環境變數 `CLAUDE_SESSION_ID`，沒有時用 `'manual'`。只允許英數、`-`、`_`、`.` |
+| `--run-dir` | 預設 `os.path.join(tempfile.gettempdir(), 'rgs-facet', <session>)` |
+| `--repo` | 預設目前工作目錄。用來做呼叫前後的快照比對 |
+| `--prior-stdin` | 第二輪起必須加：從 stdin 讀前輪處置 JSON |
+
+### status 與 exit code
+
+| status | exit | 說明 |
+| :-- | --: | :-- |
+| `ok` | 0 | 拿到合法的 verdict |
+| `timeout` | 2 | agy 執行逾時 |
+| `agy_error` | 3 | agy 回報錯誤或 quota 用盡；或找不到 agy |
+| `empty_output` | 4 | agy 沒有回傳 structured_output |
+| `parse_error` | 5 | structured_output 是字串且解析 JSON 失敗 |
+| `schema_error` | 5 | verdict schema 驗證失敗 |
+| `workspace_modified` | 6 | 呼叫期間 repo 或工作區有變動（優先於呼叫 agy 之後的所有其他 status） |
+| `secret_suspected` | 7 | 計畫內容疑含機密；不呼叫 agy |
+| `forbidden_flag` | 8 | agy 參數或模型不合規；不呼叫 agy |
+| `plan_too_long` | 9 | 計畫內容組出之 prompt 超過長度限制；不呼叫 agy |
+| `usage_error` | 10 | 命令列參數錯誤、檔案不存在或前輪資料格式錯誤；不呼叫 agy |
+
+### call 目錄的檔案
+
+每次呼叫的紀錄放在 `<run-dir>/r<N>-<lens>/`：
+
+- `prompt.md`：送給審查者的 prompt 全文
+- `prior.json`：前輪處置資料（第二輪起由 `--prior-stdin` 讀入）
+- `schema.json`：該輪審查使用的 JSON schema（第二輪起將 `resolved` 設為必填）
+- `agy.prompt.md`：實際傳給 agy 的 prompt
+- `agy.json`：agy 的 stdout 輸出
+- `agy.err`：agy 的 stderr 輸出
+- `agy.log`：agy 的 log 檔副本（解析出的模型 label）
+- `guard.log`：sealed 工作區中的 guard 決策紀錄
+- `meta.json`：本次呼叫的完整中繼資料（狀態、exit code、模型、耗時、快照變更等）
+
 ## 其他
 
 | 腳本 | 用途 |

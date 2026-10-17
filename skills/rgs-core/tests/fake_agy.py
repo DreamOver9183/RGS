@@ -1,7 +1,7 @@
 """Stand-in for agy in tests. Behaviour comes from environment variables:
 
 FAKE_AGY_SCENARIO  ok | timeout | error | quota | quota_model | no_struct | implement | review_findings
-                   | batch_echo | digest_echo | sleep_child
+                   | batch_echo | digest_echo | sleep_child | structured | ws_write
 FAKE_AGY_DIR       folder for calls/ (one JSON file per invocation: argv, cwd, the guard policy and the
                    absolute paths in the prompt that do not exist) and counters
 FAKE_AGY_WRITE     implement: comma-separated paths (relative to cwd) to append a line to
@@ -9,6 +9,8 @@ FAKE_AGY_QUOTA_MODEL  quota_model: the model that reports quota exhaustion
 FAKE_AGY_DROP      batch_echo: an id left out of the first reply
 FAKE_AGY_LABEL     label string for the log file; empty string writes log without label line
 FAKE_AGY_MODELS    semicolon-separated model IDs for the 'models' subcommand
+FAKE_AGY_TOUCH     absolute path to append a line to before processing any scenario
+FAKE_AGY_STRUCTURED  JSON string for structured and ws_write scenarios
 
 Subcommands handled before reading environment:
 --version          prints 'agy 1.4.0'
@@ -84,6 +86,12 @@ def main():
             'duration_seconds': 0.1, 'num_turns': 1,
             'usage': {'input_tokens': 1000, 'output_tokens': 10, 'total_tokens': 1010}}
 
+    touch_path = os.environ.get('FAKE_AGY_TOUCH')
+    if touch_path:
+        os.makedirs(os.path.dirname(os.path.abspath(touch_path)), exist_ok=True)
+        with open(touch_path, 'a', encoding='utf-8', newline='\n') as f:
+            f.write(f'# touched by fake_agy {time.time_ns()}\n')
+
     if scenario == 'sleep_child':
         child = subprocess.Popen(
             [sys.executable, '-c', 'import time; time.sleep(120)'],
@@ -114,6 +122,22 @@ def main():
             with open(path, 'a', encoding='utf-8', newline='\n') as f:
                 f.write(f'# change {count_calls(state_dir)}\n')
         emit({**base, 'response': 'Changed: ' + (os.environ.get('FAKE_AGY_WRITE') or 'nothing')})
+
+    if scenario == 'ws_write':
+        with open(os.path.join(os.getcwd(), 'probe.txt'), 'w', encoding='utf-8', newline='\n') as f:
+            f.write('probe\n')
+
+    if scenario in ('structured', 'ws_write'):
+        raw = os.environ.get('FAKE_AGY_STRUCTURED', '{}')
+        try:
+            structured = json.loads(raw)
+        except (ValueError, TypeError):
+            structured = raw
+        out = {**base, 'response': 'done'}
+        if schema:
+            out['json_schema'] = schema
+        out['structured_output'] = structured
+        emit(out)
 
     structured = None
     if schema:
