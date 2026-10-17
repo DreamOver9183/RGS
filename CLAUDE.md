@@ -69,7 +69,13 @@
 - agy 回報 `status: SUCCESS` 但其實沒完成 → timeout、工具被拒、子代理沒回報時都可能回 SUCCESS → 只看腳本的分類結果、guard 紀錄與實際 diff。
 - `--json-schema` 的結果不能從 `response` 解析 → `response` 是模型自己寫的 JSON 加上 `finish` 工具參數兩段接在一起 → 只讀 `structured_output`。
 - agy hook 沒有執行、agy 以 `invalid UTF-8` 錯誤結束 → Windows 上 hook 以 `cmd /c` 執行，沒有空白的路徑加了引號就會失敗 → 執行檔路徑只在含空白時加引號。
-- 少傳 `--model` 時呼叫的是 Claude → 使用者的 agy 預設模型是 Claude Opus → `--model` 必傳，且必須以 `gemini-` 開頭。
+- 少傳 `--model` 時呼叫的是 Claude → 使用者的 agy 預設模型是 Claude Opus → `--model` 必傳，且必須以 `gemini-` 開頭（`call_agy` 的 `check_agy_args` 會擋下其他模型）。
+- 逾時被強制結束後仍留下程序 → agy 會另外啟動 language server 子程序，只結束 agy 本身不夠 → `call_agy` 以新的程序群組啟動，逾時時終止整個程序樹（`kill_tree`）。
+- 審查者從參數推測出主 checkout 的位置 → 只要參數出現主 checkout 的路徑（包括 `--log-file`）就可能洩漏 → 輸出檔先寫系統暫存目錄，agy 結束後再複製到 run 目錄。
+
+### Python
+
+- 腳本用 `python -I` 執行時 import 同資料夾或 rgs-core 的模組失敗 → Python 3.11 起 `-I` 不會把腳本所在資料夾放進 `sys.path` → 每個腳本與會被匯入的模組，自己把所在資料夾（rgs-facet 另外加上 `../rgs-core/scripts`）插進 `sys.path`，不依賴呼叫端。
 
 ### Windows 終端機
 

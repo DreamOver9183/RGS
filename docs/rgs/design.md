@@ -14,9 +14,9 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 
 | 里程碑 | 狀態 | 分支／PR | 測試數 | 備註 |
 | :-- | :-- | :-- | :-- | :-- |
-| M1 | 未開始 | | | 搬入 rgs-facet 專屬模組 |
-| M2 | 未開始 | | | `call_agy` 強化 |
-| M3 | 未開始 | | | 封閉唯讀、快照、doctor |
+| M1 | 已合併 | `feat/m1-facet-modules`／#1 | rgs-core 84、rgs-facet 61 | 搬入 rgs-facet 專屬模組；Claude 審查 0 輪修正；合併閘門 PASS，無意見 |
+| M2 | 已合併 | `feat/m2-call-agy-hardening`／#2 | rgs-core 96 | `call_agy` 強化；Claude 審查 1 輪修正（`--log-file` 不能指向主 checkout）；合併閘門第 1 輪 PASS、5 個次要意見採納 4 條（fix-2），第 2 輪 PASS；sandbox 真 agy 實測通過 |
+| M3 | 實作中 | `feat/m3-sealed-snapshot-doctor`（堆疊在 M2） | | 封閉唯讀、快照、doctor |
 | M4 | 未開始 | | | `facet_review.py` |
 | M5 | 未開始 | | | rgs-facet skill 本體、安裝 |
 | M6 | 未開始 | | | 文件與 RGS 整合 |
@@ -206,8 +206,8 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 | 需求 | 里程碑 | 測試 | PR |
 | :-- | :-- | :-- | :-- |
-| R-1、R-2、R-3 | M1 | `rgs-facet/tests/test_verdict*.py`、`test_prompt.py`；`rgs-core/tests/test_scope_secret.py` | |
-| R-4 | M2 | `rgs-core/tests/test_common.py` | |
+| R-1、R-2、R-3 | M1 | `rgs-facet/tests/test_verdict*.py`、`test_prompt.py`；`rgs-core/tests/test_scope_secret.py` | #1 |
+| R-4 | M2 | `rgs-core/tests/test_common.py` | #2 |
 | R-5、R-6 | M3 | `rgs-core/tests/test_guard.py`、`test_common.py`、`test_doctor.py` | |
 | R-7 | M4 | `rgs-facet/tests/test_facet_review.py` | |
 | R-8、R-9、R-10 | M5 | `rgs-facet/tests/test_skill_md.py`、`test_guard_agy.py` | |
@@ -222,9 +222,14 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 2. 錯誤案例的測試要同時斷言錯誤種類與訊息內容（例如 `__cause__` 與原始說明），不要只斷言有丟例外（出處：Facet PR #2）。
 3. 程式刻意區分的邊界（例如 `bool` 與 `int`）要有專屬測試，否則重構時容易被改壞（出處：Facet PR #2）。
 4. agy hook 指令中，沒有空白的執行檔路徑不要加引號：Windows 上 `cmd /c` 會執行失敗，agy 以 `invalid UTF-8` 錯誤結束（出處：Facet 預檢 A5b）。
+5. 交給 agy 的參數（包括 `--log-file` 這類輸出檔路徑）不能出現主 checkout 的路徑：先寫到系統暫存目錄，結束後再複製（出處：PR #2 fix-1）。
+6. 每個測試情境都要真的觸發到：聲稱檢查「不帶 save_as」的測試，必須真的做那次呼叫（出處：PR #2 fix-1）。
+7. 規格要求的每個行為都要有斷言，包括逾時等次要路徑上的欄位（例如逾時也要填 `reported_model`）與「取最後一個」這類邊界（出處：PR #2 fix-2）。
 
 ## 修訂歷史
 
 | 版本 | 日期 | 變更 |
 | :-- | :-- | :-- |
 | v1 | 2026-10-17 | 初版：依使用者核准的合併計畫 |
+| v1.1 | 2026-10-17 | M1 已合併（PR #1） |
+| v1.2 | 2026-10-17 | M2 已合併（PR #2）；教訓 5–7 |
