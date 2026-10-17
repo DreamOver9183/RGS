@@ -39,5 +39,23 @@ class DoctorTest(unittest.TestCase):
         self.assertIn('user.email', check['detail'])
 
 
+class PermissionRulesTest(unittest.TestCase):
+    def test_path_with_spaces_is_quoted_like_the_command(self):
+        import doctor
+        rules = doctor.permission_rules('D:\\Claude Code\\RGS_skills\\skills\\rgs-core')
+        self.assertEqual(rules[0], 'Bash(python -I "D:/Claude Code/RGS_skills/skills/rgs-core/scripts/rgs.py":*)')
+        # The rule is a prefix of the command Claude runs.
+        command = 'python -I "D:/Claude Code/RGS_skills/skills/rgs-core/scripts/review.py" --pr 1'
+        self.assertTrue(command.startswith(rules[1][len('Bash('):-len(':*)')]))
+        self.assertEqual(len(rules), 7)
+        self.assertTrue(all(r.count('"') == 2 for r in rules))
+
+    def test_path_without_spaces_is_not_quoted(self):
+        import doctor
+        rules = doctor.permission_rules('C:/tools/rgs-core')
+        self.assertEqual(rules[0], 'Bash(python -I C:/tools/rgs-core/scripts/rgs.py:*)')
+        self.assertFalse(any('"' in r for r in rules))
+
+
 if __name__ == '__main__':
     unittest.main()

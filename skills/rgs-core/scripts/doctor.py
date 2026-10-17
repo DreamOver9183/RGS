@@ -85,9 +85,11 @@ def detect_profile(repo):
     return profile
 
 
-def permission_rules():
-    scripts = os.path.join(rc.CORE, 'scripts').replace('\\', '/')
-    return [f'Bash(python -I {scripts}/{name}:*)' for name in
+def permission_rules(core=None):
+    """Prefix rules for the commands as Claude runs them: python -I "<path>" … when the path has spaces."""
+    scripts = os.path.join(core or rc.CORE, 'scripts').replace('\\', '/')
+    quote = '"' if re.search(r'\s', scripts) else ''
+    return [f'Bash(python -I {quote}{scripts}/{name}{quote}:*)' for name in
             ('rgs.py', 'review.py', 'doctor.py', 'batch.py', 'digest.py', 'scope_check.py', 'secret_scan.py')]
 
 

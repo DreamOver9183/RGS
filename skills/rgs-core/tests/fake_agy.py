@@ -2,7 +2,8 @@
 
 FAKE_AGY_SCENARIO  ok | timeout | error | quota | quota_model | no_struct | implement | review_findings
                    | batch_echo | digest_echo
-FAKE_AGY_DIR       folder for calls/ (one JSON file per invocation) (every invocation is recorded) and counters
+FAKE_AGY_DIR       folder for calls/ (one JSON file per invocation: argv, cwd, the guard policy and the
+                   absolute paths in the prompt that do not exist) and counters
 FAKE_AGY_WRITE     implement: comma-separated paths (relative to cwd) to append a line to
 FAKE_AGY_QUOTA_MODEL  quota_model: the model that reports quota exhaustion
 FAKE_AGY_DROP      batch_echo: an id left out of the first reply
@@ -41,8 +42,16 @@ def main():
         # One file per call: parallel processes appending to one file can lose lines on Windows.
         calls_dir = os.path.join(state_dir, 'calls')
         os.makedirs(calls_dir, exist_ok=True)
+        policy = os.path.join(os.getcwd(), '.agents', 'rgs-guard.json')
+        guard = None
+        if os.path.exists(policy):
+            with open(policy, encoding='utf-8') as f:
+                guard = json.load(f)
+        # Absolute paths quoted in the prompt that do not exist while agy runs.
+        missing = [p for p in re.findall(r'`((?:[A-Za-z]:)?[\\/][^`]*)`', prompt) if not os.path.exists(p)]
         with open(os.path.join(calls_dir, f'{time.time_ns()}-{uuid.uuid4().hex[:6]}.json'), 'w', encoding='utf-8') as f:
-            json.dump({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'scenario': scenario}, f, ensure_ascii=False)
+            json.dump({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'scenario': scenario, 'guard': guard,
+                       'missing_paths': missing}, f, ensure_ascii=False)
     base = {'conversation_id': arg('--conversation') or str(uuid.uuid4()), 'status': 'SUCCESS',
             'duration_seconds': 0.1, 'num_turns': 1,
             'usage': {'input_tokens': 1000, 'output_tokens': 10, 'total_tokens': 1010}}

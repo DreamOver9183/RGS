@@ -205,6 +205,36 @@ class GitHubFlowTest(unittest.TestCase):
         self.assertIsNone(self.task_state('m1').get('pr'))
         self.assertEqual(git(['rev-parse', 'refs/heads/feat/m1-sub'], self.remote), data['commit'])
 
+    def assert_review_saw_only_the_worktree(self, data, inputs):
+        """agy gets paths in the review worktree only; inputs and outputs stay in the run dir."""
+        call = calls(self.agy_dir)[-1]
+        argv, prompt = call['argv'], call['argv'][1]
+        review_wt = os.path.join(self.tmp.path, 'repo.rgs', 'review-pr-1')
+        io = os.path.join(review_wt, '.rgs-review')
+        self.assertIn(f'`{os.path.join(review_wt, "CLAUDE.md")}`', prompt)
+        for name in inputs:
+            if name != 'schema.json':
+                self.assertIn(f'`{os.path.join(io, name)}`', prompt)
+        self.assertEqual(argv[argv.index('--json-schema') + 1], os.path.join(io, 'schema.json'))
+        self.assertNotIn('--add-dir', argv)
+        self.assertEqual(call['missing_paths'], [])
+        self.assertIsNotNone(call['guard'])
+        self.assertEqual([os.path.normcase(r) for r in call['guard']['roots']], [os.path.normcase(review_wt)])
+        # repo.rgs/ also starts with "repo", so look for the main checkout as a folder.
+        top = git(['rev-parse', '--show-toplevel'], self.repo)
+        roots = {p.replace('\\', '/').rstrip('/').lower() for p in (self.repo, top)}
+        for text in [*argv, call['cwd']]:
+            text = text.replace('\\', '/').lower()
+            for root in roots:
+                self.assertNotEqual(text.rstrip('/'), root)
+                self.assertNotIn(root + '/', text)
+        rd = os.path.dirname(data['report'])
+        for name in inputs + ['agy.prompt.md', 'agy.json', 'agy.err', 'guard.log', 'review.json', 'review.md']:
+            self.assertTrue(os.path.isfile(os.path.join(rd, name)), name)
+        self.assertFalse(os.path.exists(review_wt))
+        with open(os.path.join(self.repo, '.git', 'info', 'exclude'), encoding='utf-8') as f:
+            self.assertIn('/.rgs-review/', f.read().splitlines())
+
     def test_review_pr_posts_the_report_and_appends_the_ledger(self):
         self.shipped('m1', 'feat/m1-sub')
         ledger = os.path.join(self.repo, 'docs', 'rgs', 'reviews', 'PR-1.md')
@@ -222,16 +252,14 @@ class GitHubFlowTest(unittest.TestCase):
         self.assertIn('PR 留言：https://github.com/owner/repo/pull/1#issuecomment-1', text)
         self.assertIn('報告：`.rgs/runs/m1/review-1/review.md`', text)
         self.assertEqual(text.count('待裁決'), 2)
-        prompt = calls(self.agy_dir)[-1]['argv'][1]
-        review_wt = os.path.join(self.tmp.path, 'repo.rgs', 'review-pr-1')
-        self.assertIn(f'`{os.path.join(review_wt, "CLAUDE.md")}`', prompt)
-        self.assertNotIn(f'`{os.path.join(self.repo, "CLAUDE.md")}`', prompt)
+        self.assert_review_saw_only_the_worktree(data, ['pr.diff', 'reviewer-rules.md', 'schema.json'])
 
         note = os.path.join(self.tmp.path, 'note.md')
         write(note, '# 審查備註\n\n上一輪：採納 1、不採納 2\n')
         code, data, out = run_script('review.py', args + ['--note', note], self.repo, 'ok', self.env)
         self.assertEqual(code, 0, out)
         self.assertEqual((data['verdict'], data['round']), ('PASS', 2))
+        self.assert_review_saw_only_the_worktree(data, ['pr.diff', 'note.md', 'reviewer-rules.md', 'schema.json'])
         self.assertEqual(len(self.pr(1)['comments']), 2)
         with open(ledger, encoding='utf-8') as f:
             text = f.read()

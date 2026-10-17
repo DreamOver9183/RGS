@@ -27,6 +27,7 @@ LENS_TEXT = {
     'spec-tests-docs': 'spec-tests-docs：規格的每個要求是否完成、是否改了範圍外的東西、測試是否真的測到聲稱的行為、文件與程式是否一致（測試數、路徑、版本、指令）。',
 }
 SEVERITY = {'blocker': '阻擋', 'major': '重要', 'minor': '次要'}
+REVIEW_INPUTS = '.rgs-review'  # inside the review worktree, excluded from git
 
 
 def schema(lenses):
@@ -154,34 +155,34 @@ def review(args):
     round_no = 1 + sum(1 for n in os.listdir(base_dir) if n.startswith('review-') and os.path.isdir(os.path.join(base_dir, n)))
     rd = os.path.join(base_dir, f'review-{round_no}')
     os.makedirs(rd, exist_ok=True)
-    diff_path = os.path.join(rd, 'pr.diff')
-    rc.write_text(diff_path, diff)
+    inputs = {'pr.diff': diff}
     spec = args.spec or (task or {}).get('spec')
-    spec_ref = '（沒有規格檔，依 diff 與知識庫判斷）'
     if spec and os.path.exists(spec):
-        spec_ref = f'`{os.path.join(rd, "spec.md")}`'
-        rc.write_text(os.path.join(rd, 'spec.md'), rc.read_text(spec))
-    note_ref = '（無）'
+        inputs['spec.md'] = rc.read_text(spec)
     if args.note:
-        note_ref = f'`{os.path.join(rd, "note.md")}`'
-        rc.write_text(os.path.join(rd, 'note.md'), rc.read_text(args.note))
+        inputs['note.md'] = rc.read_text(args.note)
     lenses = [l for l in conf['lenses'] if l in LENS_TEXT] or list(LENS_TEXT)
     deny = list(profile['secrets'].get('deny_read') or []) + list(profile.get('worktree_copy') or [])
     kb_files = list(profile.get('knowledge_base') or [])
     kb = '、'.join(f'`{p}`' for p in kb_files) or '（無）'
-    # Absolute paths in the review worktree: the run-dir paths in the prompt point at the main checkout,
-    # and a reviewer that guesses the project root from them is denied by the guard.
+    inputs['reviewer-rules.md'] = rc.render_template('reviewer-rules.md', repo, knowledge_base=kb,
+                                                     secrets='、'.join(f'`{p}`' for p in deny))
+    inputs['schema.json'] = json.dumps(schema(lenses), ensure_ascii=False)
+    for name, text in inputs.items():  # the run dir keeps a copy of every input
+        rc.write_text(os.path.join(rd, name), text)
+    diff_path = os.path.join(rd, 'pr.diff')
+    # agy gets only paths inside the review worktree. With run-dir paths (under the main checkout) in the
+    # prompt, the reviewer guessed the project root from them and tried to read the main checkout.
     wt = os.path.join(rc.worktree_root(repo, profile), f'review-{label}')
-    kb_in_wt = '、'.join(f'`{os.path.join(wt, p)}`' for p in kb_files) or '（無）'
-    rules = os.path.join(rd, 'reviewer-rules.md')
-    rc.write_text(rules, rc.render_template('reviewer-rules.md', repo, secrets='、'.join(f'`{p}`' for p in deny),
-                                            knowledge_base=kb))
-    schema_path = os.path.join(rd, 'schema.json')
-    rc.write_text(schema_path, json.dumps(schema(lenses), ensure_ascii=False))
+    io = os.path.join(wt, REVIEW_INPUTS)
+    ref = lambda name: f'`{os.path.join(io, name)}`'  # noqa: E731
     language = '繁體中文' if profile['language'].get('docs', 'zh-TW').lower().startswith('zh') else 'English'
-    prompt = rc.render_template('prompts/review.md', repo, title=title, rules=rules, diff=diff_path, spec=spec_ref,
-                                note=note_ref, knowledge_base=kb_in_wt, worktree=wt, lens_count=len(lenses),
-                                language=language,
+    prompt = rc.render_template('prompts/review.md', repo, title=title, inputs=io, worktree=wt,
+                                rules=os.path.join(io, 'reviewer-rules.md'), diff=os.path.join(io, 'pr.diff'),
+                                spec=ref('spec.md') if 'spec.md' in inputs else '（沒有規格檔，依 diff 與知識庫判斷）',
+                                note=ref('note.md') if 'note.md' in inputs else '（無）',
+                                knowledge_base='、'.join(f'`{os.path.join(wt, p)}`' for p in kb_files) or '（無）',
+                                lens_count=len(lenses), language=language,
                                 lenses='\n'.join(f'   {i}. {LENS_TEXT[l]}' for i, l in enumerate(lenses, 1)))
 
     if os.path.isdir(wt):
@@ -193,14 +194,19 @@ def review(args):
         if apply_diff:
             # From the file: text-mode stdin on Windows would turn LF into CRLF and break the patch.
             rc.run(['git', 'apply', '--whitespace=nowarn', diff_path], cwd=wt)
-        rc.install_guard(wt, {'role': 'reviewer', 'roots': [wt, rd], 'write_allow': [], 'deny_read': deny,
+        for name, text in inputs.items():
+            rc.write_text(os.path.join(io, name), text)
+        rc.exclude_in_git(wt, [f'/{REVIEW_INPUTS}/'])
+        rc.install_guard(wt, {'role': 'reviewer', 'roots': [wt], 'write_allow': [], 'deny_read': deny,
                               'read_commands': True, 'allow_commands': []})
+        # Outputs go to the run dir: the worktree is removed below.
         result = rc.call_with_fallback([args.model] if args.model else conf['models'], prompt=prompt, cwd=wt,
-                                       schema_path=schema_path, add_dirs=[rd],
+                                       schema_path=os.path.join(io, 'schema.json'),
                                        timeout_s=args.timeout or conf['timeout_s'],
                                        save_as=os.path.join(rd, 'agy'))
         entries, _ = rc.guard_log_since(wt, 0)
         denials = [e for e in entries if e.get('decision') == 'deny']
+        rc.write_text(os.path.join(rd, 'guard.log'), ''.join(json.dumps(e, ensure_ascii=False) + '\n' for e in entries))
     finally:
         rc.git(['worktree', 'remove', '--force', wt], cwd=repo, check=False)
 

@@ -162,7 +162,8 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(data['verdict'], 'CHANGES_REQUESTED')
         self.assertEqual(data['model_verdict'], 'PASS')
         self.assertEqual(data['counts'], {'blocker': 0, 'major': 1, 'minor': 1})
-        review = json.load(open(os.path.join(os.path.dirname(data['report']), 'review.json'), encoding='utf-8'))
+        with open(os.path.join(os.path.dirname(data['report']), 'review.json'), encoding='utf-8') as f:
+            review = json.load(f)
         self.assertEqual(review['findings'][0]['file'], 'calc.py')
         with open(data['ledger'], encoding='utf-8') as f:
             self.assertIn('待裁決', f.read())

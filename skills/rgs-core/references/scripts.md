@@ -51,6 +51,8 @@ review.py --diff-base REF [--head REF]             # 任意本地範圍
 
 摘要：`verdict`（腳本依 findings 重算：有 blocker/major 就是 `CHANGES_REQUESTED`）、`model_verdict`、`counts`、`report`（Markdown）、`ledger`、`posted`／`comment_url`（`--post` 成功時）或 `post_error`（留言失敗；審查結果仍有效，exit 仍是 0）。exit 0 只代表審查有產出，**通過與否看 `verdict`**。
 
+審查在 detached worktree `<repo>.rgs/review-<label>` 進行。輸入檔（`pr.diff`、`spec.md`、`note.md`、`reviewer-rules.md`、`schema.json`）放在 worktree 內的 `.rgs-review/`（用 `.git/info/exclude` 排除），prompt 與 agy 參數只出現 worktree 內的路徑，guard 的讀取範圍也只有這個 worktree，審查者不會因為路徑而去讀主 checkout。審查結束後 worktree 會被移除；輸入檔副本、agy 輸出（`agy.prompt.md`、`agy.json`、`agy.err`）、`guard.log`、`review.json`、`review.md` 都留在 `.rgs/runs/<task>/review-<n>/`。
+
 ## 其他
 
 | 腳本 | 用途 |
@@ -60,6 +62,8 @@ review.py --diff-base REF [--head REF]             # 任意本地範圍
 | `secret_scan.py [--cwd DIR] [--files …]` | 掃描 staged diff 或指定檔案 |
 | `batch.py …` | 大量資料批次，見 `delegation.md` |
 | `digest.py …` | 長文件／log 摘要，見 `delegation.md` |
+
+`doctor.py --init` 列出的權限規則是指令前綴，例如 `Bash(python -I C:/tools/rgs-core/scripts/rgs.py:*)`。`<core>` 路徑含空白時（例如 `D:/Claude Code/…`），規則裡的路徑會加上雙引號：`Bash(python -I "D:/Claude Code/…/scripts/rgs.py":*)`。這時執行腳本也要寫成 `python -I "<core>/scripts/<name>.py" …`（雙引號、正斜線），和規則一字不差，否則規則對不上，每次仍會詢問權限。
 
 ## 測試
 
