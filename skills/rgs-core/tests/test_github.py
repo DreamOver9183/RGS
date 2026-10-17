@@ -9,7 +9,7 @@ PROFILE = {
     'knowledge_base': ['CLAUDE.md'],
     'shell': 'bash',
     'commands': {'quick': ['python -c "import calc"'], 'verify': ['python -c "print(42)"']},
-    'agy': {'implementer': {'models': ['m-impl']}, 'reviewer': {'models': ['m-review']}},
+    'agy': {'implementer': {'models': ['gemini-test-impl']}, 'reviewer': {'models': ['gemini-test-review']}},
 }
 SPEC = """# M{n}
 

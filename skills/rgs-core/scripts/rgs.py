@@ -208,7 +208,7 @@ def cmd_implement(args):
     offset = rc.guard_log_size(task['worktree'])
     before = main_status(repo)
     result = rc.call_with_fallback([args.model] if args.model else conf['models'], prompt=prompt,
-                                   cwd=task['worktree'], mode='accept-edits',
+                                   cwd=task['worktree'], mode='accept-edits', role='implementer',
                                    timeout_s=args.timeout or conf['timeout_s'],
                                    save_as=os.path.join(task['run_dir'], 'implement'))
     return after_agy_run(repo, args.task, task, profile, result, 'implement', offset, before)
@@ -252,6 +252,7 @@ def cmd_fix(args):
     before = main_status(repo)
     result = rc.call_with_fallback([args.model] if args.model else conf['implementer']['models'], prompt=prompt,
                                    cwd=task['worktree'], mode='accept-edits', conversation=conversation,
+                                   role='implementer',
                                    timeout_s=args.timeout or conf['implementer']['timeout_s'],
                                    save_as=os.path.join(task['run_dir'], f'fix-{round_no}'))
     return after_agy_run(repo, args.task, task, profile, result, f'fix-{round_no}', offset, before,

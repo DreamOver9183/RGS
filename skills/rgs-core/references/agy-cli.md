@@ -7,12 +7,17 @@
 ```
 agy -p "<prompt>" --model <m> --output-format json --disable-slash-commands --print-timeout <N>s
     [--mode accept-edits] [--json-schema <file>] [--conversation <id>] [--add-dir <dir>]
+    [--log-file <file>]
 ```
 
 - stdin 一律接 DEVNULL；執行在目標 worktree（cwd 就是 agy 的工作區）。
 - prompt 只放短指令與檔案路徑，內容（spec、diff、規則）放在工作區內的檔案裡讓它讀（rgs 用 worktree 內的 `.rgs-task/`、`.rgs-review/`）。Windows 命令列上限約 32K 字元。
 - prompt 與參數不要出現主 checkout 的路徑：審查者曾從主 checkout 下的 run dir 路徑推測專案根目錄，跑去讀主 checkout（被 guard 擋下）。所以 rgs 不用 `--add-dir` 指向 run dir。
 - 可用模型以 `agy models` 為準。2026-10-17 有：`gemini-4-argon-{low,medium,high}`、`gemini-3.8-flash-{low,medium,high}`、`claude-opus-5-5-*`、`claude-sonnet-5-5-*`、`gpt-oss-120b-medium`。rgs 預設實作與審查用 `gemini-3.8-flash-high`（實戰驗證過），批次用 `gemini-3.8-flash-low`。
+- 參數依角色檢查：在啟動 agy 之前由 `check_agy_args` 檢查。通用的禁止清單（`--dangerously-skip-permissions`、`--yolo`、`-i`、`--prompt-interactive`、`--remote-control`、`--sandbox`）對所有角色一律禁止；審查者（`reviewer`）禁止清單（`--mode`、`--add-dir`、`--conversation`、`-c`、`--continue`）；實作者（`implementer`）的 `--mode` 僅允許 `accept-edits`。不合規一律丟 `RgsError(code=2)`。
+- `--model` 必須以 `gemini-` 開頭（大小寫須完全相符），否則丟 `RgsError(code=2)`。因為使用者的 agy 預設模型可能是 Claude，rgs 只用 Gemini 模型，必須明確指定。
+- 逾時時終止整個程序樹：超過 `timeout_s + grace_s`（`grace_s` 預設 180 秒）未結束時，由 `kill_tree` 終止程序樹。Windows 使用 `taskkill /PID <pid> /T /F`，POSIX 使用 `os.killpg` 發送 `SIGTERM`（等待 10 秒）與 `SIGKILL`，確保父程序及其啟動的所有子程序全數終止。
+- 每次呼叫一律帶 `--log-file <file>`。log 先寫在系統暫存目錄，agy 結束後才複製到 `save_as + '.log'`；agy 的參數不能出現主 checkout 的路徑。log 中包含 agy 用戶端解析後送出的模型名稱（`label="…"`，例如 `Gemini 4 Argon (High)`），這是用戶端解析的模型名稱，不是伺服器回報的。`AgyResult.reported_model` 會取出 log 中最後一個 label（無 label 或讀不到時為 `None`）。
 
 ## 輸出 JSON
 

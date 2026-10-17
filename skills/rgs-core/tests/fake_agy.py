@@ -1,16 +1,18 @@
 """Stand-in for agy in tests. Behaviour comes from environment variables:
 
 FAKE_AGY_SCENARIO  ok | timeout | error | quota | quota_model | no_struct | implement | review_findings
-                   | batch_echo | digest_echo
+                   | batch_echo | digest_echo | sleep_child
 FAKE_AGY_DIR       folder for calls/ (one JSON file per invocation: argv, cwd, the guard policy and the
                    absolute paths in the prompt that do not exist) and counters
 FAKE_AGY_WRITE     implement: comma-separated paths (relative to cwd) to append a line to
 FAKE_AGY_QUOTA_MODEL  quota_model: the model that reports quota exhaustion
 FAKE_AGY_DROP      batch_echo: an id left out of the first reply
+FAKE_AGY_LABEL     label string for the log file; empty string writes log without label line
 """
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -38,6 +40,14 @@ def main():
     prompt = arg('-p') or ''
     model = arg('--model')
     schema = arg('--json-schema')
+    log_file = arg('--log-file')
+    if log_file:
+        os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
+        label_env = os.environ.get('FAKE_AGY_LABEL')
+        label = ('Fake ' + str(model)) if label_env is None else label_env
+        with open(log_file, 'w', encoding='utf-8', newline='\n') as f:
+            if label:
+                f.write(f'I1017 00:00:00.000000 1 model.go:1] Propagating selected model override to backend: label="{label}"\n')
     if state_dir:
         # One file per call: parallel processes appending to one file can lose lines on Windows.
         calls_dir = os.path.join(state_dir, 'calls')
@@ -55,6 +65,19 @@ def main():
     base = {'conversation_id': arg('--conversation') or str(uuid.uuid4()), 'status': 'SUCCESS',
             'duration_seconds': 0.1, 'num_turns': 1,
             'usage': {'input_tokens': 1000, 'output_tokens': 10, 'total_tokens': 1010}}
+
+    if scenario == 'sleep_child':
+        child = subprocess.Popen(
+            [sys.executable, '-c', 'import time; time.sleep(120)'],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        pids_file = os.path.join(state_dir or '.', 'pids.json')
+        with open(pids_file, 'w', encoding='utf-8') as f:
+            json.dump({'parent': os.getpid(), 'child': child.pid}, f)
+        time.sleep(120)
+        emit({**base, 'response': 'woke up'})
 
     if scenario == 'timeout':
         emit({**base, 'response': ''}, stderr='[agy] print timeout after 5s with turn in progress; returning partial output\n')
