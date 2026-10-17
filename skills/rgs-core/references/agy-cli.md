@@ -11,9 +11,9 @@ agy -p "<prompt>" --model <m> --output-format json --disable-slash-commands --pr
 ```
 
 - stdin 一律接 DEVNULL；執行在目標 worktree（cwd 就是 agy 的工作區）。
-- prompt 只放短指令與檔案路徑，內容（spec、diff、規則）放在工作區內的檔案裡讓它讀（rgs 用 worktree 內的 `.rgs-task/`、`.rgs-review/`）。Windows 命令列上限約 32K 字元。
+- prompt 傳入方式：rgs 實作與 PR 審查因有 worktree，將檔案放在工作區內讀取；rgs-facet 審查者無檔案讀取權限，把整份內容放在 `-p` 參數最快最便宜（約 9 秒、1.7 萬 tokens；stdin 或讓它讀檔約 60 秒、6–8 萬 tokens）。Windows 命令列上限約 32K 字元（UTF-16），因此 prompt 超過 30,000 字元時由腳本擋下（`plan_too_long`），不送出。
 - prompt 與參數不要出現主 checkout 的路徑：審查者曾從主 checkout 下的 run dir 路徑推測專案根目錄，跑去讀主 checkout（被 guard 擋下）。所以 rgs 不用 `--add-dir` 指向 run dir。
-- 可用模型以 `agy models` 為準。2026-10-17 有：`gemini-4-argon-{low,medium,high}`、`gemini-3.8-flash-{low,medium,high}`、`claude-opus-5-5-*`、`claude-sonnet-5-5-*`、`gpt-oss-120b-medium`。rgs 預設實作與審查用 `gemini-3.8-flash-high`（實戰驗證過），批次用 `gemini-3.8-flash-low`。
+- 可用模型以 `agy models` 為準（沒有 JSON 輸出，每行是「ID〔Tab〕顯示名稱」）。2026-10-17 有：`gemini-4-argon-{low,medium,high}`、`gemini-3.8-flash-{low,medium,high}`、`claude-opus-5-5-*`、`claude-sonnet-5-5-*`、`gpt-oss-120b-medium`。`gemini-4-argon-*` 的額度和 3.8 分開；rgs 預設實作與審查用 `gemini-3.8-flash-high`（實戰驗證過），批次用 `gemini-3.8-flash-low`；rgs-facet 預設用 `gemini-4-argon-high`。
 - 參數依角色檢查：在啟動 agy 之前由 `check_agy_args` 檢查。通用的禁止清單（`--dangerously-skip-permissions`、`--yolo`、`-i`、`--prompt-interactive`、`--remote-control`、`--sandbox`）對所有角色一律禁止；審查者（`reviewer`）禁止清單（`--mode`、`--add-dir`、`--conversation`、`-c`、`--continue`）；實作者（`implementer`）的 `--mode` 僅允許 `accept-edits`。不合規一律丟 `RgsError(code=2)`。
 - `--model` 必須以 `gemini-` 開頭（大小寫須完全相符），否則丟 `RgsError(code=2)`。因為使用者的 agy 預設模型可能是 Claude，rgs 只用 Gemini 模型，必須明確指定。
 - 逾時時終止整個程序樹：超過 `timeout_s + grace_s`（`grace_s` 預設 180 秒）未結束時，由 `kill_tree` 終止程序樹。Windows 使用 `taskkill /PID <pid> /T /F`，POSIX 使用 `os.killpg` 發送 `SIGTERM`（等待 10 秒）與 `SIGKILL`，確保父程序及其啟動的所有子程序全數終止。
@@ -64,7 +64,7 @@ agy -p "<prompt>" --model <m> --output-format json --disable-slash-commands --pr
 ## 其他
 
 - 費用：最小的呼叫也有約 1.2 萬 input tokens（agent 系統提示）。
-- 時間：小任務 15–30 秒；一個里程碑 5–20 分鐘；`invoke_subagent` 平行審查 10–15 分鐘。
+- 時間：小任務 15–30 秒；一個里程碑 5–20 分鐘；`invoke_subagent` 平行審查 10–15 分鐘；rgs-facet 一次計畫審查約 43–155 秒。
 - 大量資料：多個 agy process 平行比單一對話內的 `invoke_subagent` 快（RimTaiName 實測 4 process 152 秒，對照 4 子代理 202 秒、循序 649 秒），所以 `batch.py` 用 process 平行。
 - 召回：一次餵約 11 萬 tokens 的 log，三個錯誤只找到兩個，卻宣稱全部找到；`digest.py` 因此先 grep、再切塊，並核對每個引用。
 - Git Bash 會把 `/` 開頭的參數改成路徑：手動跑 `agy -p "/usage"` 要設 `MSYS_NO_PATHCONV=1`（腳本已設定）。

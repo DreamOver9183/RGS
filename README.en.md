@@ -2,19 +2,20 @@
 
 [繁體中文](README.md) | **English**
 
-Two Claude Code skills that let Claude direct Gemini, through the Antigravity CLI `agy`, to write code. Claude plans and reviews, Gemini implements, and Claude's sub-agents handle chores such as tests, docs and git. Every step has a quality gate, and work can resume where it stopped.
+A collaborative workflow spanning three Claude Code skills that let Claude direct Gemini, through the Antigravity CLI `agy`, to write code and review plans. In `/rgs-main` and `/rgs-pr`, Claude plans and reviews, Gemini implements, and Claude's sub-agents handle chores such as tests, docs and git; `/rgs-facet` runs in Plan mode to have Gemini independently review Claude's implementation plan from three angles. Every step has a quality gate, and work can resume where it stopped.
 
 The workflow comes from two real projects, an Android app and a RimWorld mod. The pitfalls hit along the way are built into the scripts and rules.
 
 ## Contents
 
 - [What it is](#what-it-is)
-- [Which command to use](#which-command-to-use)
+- [Which of the three commands to use](#which-of-the-three-commands-to-use)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [First use in a project](#first-use-in-a-project)
 - [Tutorial 1: a small task with /rgs-main](#tutorial-1-a-small-task-with-rgs-main)
 - [Tutorial 2: several milestones with /rgs-pr](#tutorial-2-several-milestones-with-rgs-pr)
+- [Tutorial 3: reviewing plans with /rgs-facet](#tutorial-3-reviewing-plans-with-rgs-facet)
 - [Delegation: batch and digest](#delegation-batch-and-digest)
 - [Interruptions and resuming](#interruptions-and-resuming)
 - [When you need to step in](#when-you-need-to-step-in)
@@ -33,21 +34,22 @@ The workflow comes from two real projects, an Android app and a RimWorld mod. Th
 | Claude (main conversation) | Clarifies requirements, writes specs and fix notes, reviews Gemini's diff, rules on review findings, maintains the knowledge base | Write product code itself |
 | Gemini (agy) | Implements the spec, applies fix notes | Run shell or git, change files outside the spec, read secret files |
 | agy reviewer | Fresh, read-only conversation that reviews in parallel along four lenses: security, correctness, architecture, spec | Write any file |
+| agy plan reviewer (rgs-facet) | Reviews plans from three lenses (logic, gaps, verifiability) in an empty temporary workspace, returning only structured results (sealed guard) | Write or read any files |
 | Claude sub-agents | Run agy, run tests, update docs, commit, open PRs | Fix code; they stop and report on failure |
 
 Why this split? Gemini is cheap and can write code for a long time, but it cannot build or run tests, and it sometimes gets things wrong or goes out of scope. Claude is good at making requirements precise and holding the quality bar. So Claude writes only specs and reviews. Which files Gemini may change is enforced by a hook, not merely requested in a prompt.
 
-## Which command to use
+## Which of the three commands to use
 
-| | `/rgs-main` | `/rgs-pr` |
-| :-- | :-- | :-- |
-| For | Small features, bug fixes, solo repos | Several features or screens; needs requirements and design docs; needs human checkpoints |
-| Flow | Spec → Gemini implements → Claude reviews and tests → push to main on pass | Requirements → design (you approve) → milestones → Gemini implements → Claude reviews → PR → independent agy review → **you merge** → knowledge capture → release |
-| On failure | Claude writes fix notes, Gemini revises, Claude reviews again | Same; every agy finding is ruled on by Claude and recorded |
-| Output | One commit on main | One PR per milestone; `docs/rgs/` keeps requirements, design, specs and review rulings |
-| Subcommands | `status`, `batch`, `digest` | `init`, `plan`, `run M<n>`, `merged <PR#>`, `release <version>`, `status`, `batch`, `digest` |
+| | `/rgs-main` | `/rgs-pr` | `/rgs-facet` |
+| :-- | :-- | :-- | :-- |
+| For | Small features, bug fixes, solo repos | Several features or screens; needs requirements and design docs; needs human checkpoints | Before starting implementation, having another model thoroughly vet the plan |
+| Flow | Spec → Gemini implements → Claude reviews and tests → push to main on pass | Requirements → design (you approve) → milestones → Gemini implements → Claude reviews → PR → independent agy review → **you merge** → knowledge capture → release | Draft in Plan mode → submit to three review lenses → Claude rules on findings, revises, and resubmits (up to 3 rounds) → delivers plan with review summary via a single ExitPlanMode |
+| On failure | Claude writes fix notes, Gemini revises, Claude reviews again | Same; every agy finding is ruled on by Claude and recorded | Claude rules to accept or reject findings, revises the plan and re-reviews; or stops the loop and asks you whether to deliver directly |
+| Output | One commit on main | One PR per milestone; `docs/rgs/` keeps requirements, design, specs and review rulings | Plan file in Plan mode (with review summary and appendix) |
+| Subcommands | `status`, `batch`, `digest` | `init`, `plan`, `run M<n>`, `merged <PR#>`, `release <version>`, `status`, `batch`, `digest` | None |
 
-If unsure, start with `/rgs-main`. When a task needs several milestones, Claude will suggest switching to `/rgs-pr`.
+If unsure, start with `/rgs-main`. When a task needs several milestones, Claude will suggest switching to `/rgs-pr`. rgs-facet reviews only plans and writes no code; once a plan is approved, you can proceed to implement it with `/rgs-main` or `/rgs-pr`.
 
 ## Prerequisites
 
@@ -76,16 +78,16 @@ On Windows, the build and test commands in the profile run in Git Bash by defaul
    powershell -ExecutionPolicy Bypass -File RGS/install.ps1
    ```
 
-   It creates three junctions under `~/.claude/skills/`: `rgs-core`, `rgs-main` and `rgs-pr`, all pointing into this repository. A later `git pull` therefore updates the skills too. Install all three, because `rgs-main` and `rgs-pr` use their sibling `rgs-core`.
+   It creates four junctions under `~/.claude/skills/`: `rgs-core`, `rgs-main`, `rgs-pr`, and `rgs-facet` (three skill folders plus rgs-core), all pointing into this repository. A later `git pull` therefore updates the skills too. Install all folders, because `rgs-main`, `rgs-pr`, and `rgs-facet` use their sibling `rgs-core`. If a legacy `~/.claude/commands/rgs-facet.md` already exists, the installer will warn of a conflict; please resolve it manually.
 
-3. **Start a new Claude Code session.** Skills are loaded only when a session starts. Typing `/` should now list `/rgs-main` and `/rgs-pr`.
+3. **Start a new Claude Code session.** Skills are loaded only when a session starts. Typing `/` should now list `/rgs-main`, `/rgs-pr`, and `/rgs-facet`.
 
 To uninstall, run `powershell -ExecutionPolicy Bypass -File RGS/install.ps1 -Uninstall`. It removes only the junctions, never the repository.
 
 macOS / Linux have no installer yet. You can create symlinks by hand; this is not yet verified on those platforms:
 
 ```bash
-ln -s "$PWD/RGS/skills/rgs-core" "$PWD/RGS/skills/rgs-main" "$PWD/RGS/skills/rgs-pr" ~/.claude/skills/
+ln -s "$PWD/RGS/skills/rgs-core" "$PWD/RGS/skills/rgs-main" "$PWD/RGS/skills/rgs-pr" "$PWD/RGS/skills/rgs-facet" ~/.claude/skills/
 ```
 
 ## First use in a project
@@ -220,6 +222,83 @@ Claude then:
 4. Artifacts are built from the merged commit, SHA-256 hashes are computed, and release notes are written.
 5. **Claude asks you to confirm before creating the GitHub release**, and offers a draft-only release.
 
+## Tutorial 3: reviewing plans with /rgs-facet
+
+Best used before starting implementation, when you want another model (Gemini) to rigorously vet your implementation plan.
+
+> [!IMPORTANT]
+> **Submission consent and data privacy**: Running a review sends the full plan text to Google (Gemini) via Antigravity CLI. When you explicitly type `/rgs-facet` or ask for a cross-model plan review, that is treated as consent. If Claude automatically loads the skill based on its description, it confirms with you in a single sentence before the first submission: "Will send full plan text to Gemini (Google), okay?".
+
+**1. Start and draft**
+
+```
+/rgs-facet <task to plan>
+```
+
+Claude then:
+1. Enters Plan mode (if not already in it).
+2. Runs a quick environment check: `python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL> --quick`.
+3. Reads code and docs (reconnaissance), clarifying ambiguities (asks all questions at once using AskUserQuestion).
+4. Drafts plan v1 in the Plan mode plan file (covering goals, steps, acceptance criteria, proof commands, risks, and assumption list). Ends with an `<!-- facet:appendix -->` marker (appendix contents are automatically stripped and never sent to the reviewer).
+
+**2. Review loop**
+
+Each round reviews sequentially across three lenses, one at a time (not in parallel):
+- `logic`: checks logical contradictions, dependency ordering, and feasibility
+- `gaps`: checks missing scenarios, unhandled edge cases, and undefined error handling
+- `verifiability`: checks whether steps are verifiable with concrete proof commands
+
+Each lens takes about 1–3 minutes per run (default model `gemini-4-argon-high`). Starting from round 2, the prior round's disposition JSON for that lens is passed in, allowing the reviewer to verify whether previous issues have been resolved.
+
+**3. Ruling and revision**
+
+After completing all three lenses in a round, Claude arbitrates each reviewer finding:
+- **Adopted**: suggestions with solid rationale and actionable improvements are adopted, and the plan is revised.
+- **Rejected**: findings lacking basis, citing non-existent content, or contradicting your explicit instructions are rejected with reasons.
+- **Major decisions**: key choices that would redirect the plan are escalated to you.
+
+If any findings are adopted, Claude revises the plan and advances to the next round (up to 3 rounds). If all three lenses return `APPROVED` in a round, or if arbitration adopts zero findings (arbitration convergence), the review completes.
+
+**4. Delivery**
+
+Once the review finishes, Claude writes the review summary before the `<!-- facet:appendix -->` marker, records per-round review outcomes and the disposition table in the appendix after the marker, and calls `ExitPlanMode` once to present the final plan.
+
+**Parameter configuration**
+
+Parameters are defined at the top of `skills/rgs-facet/SKILL.md` (`REVIEWER_MODEL`, `MAX_ROUNDS`, `AGY_TIMEOUT`, etc.). Changing the model only requires modifying that one line (default: `gemini-4-argon-high`). After upgrading or changing models, run:
+
+```bash
+python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
+```
+
+**Failures, timeouts, and modifications**
+
+- Any review status other than `ok` does not count as approved; the model is never automatically switched.
+- On timeouts (`timeout`), agy errors (`agy_error`), missing structured outputs (`empty_output`), or parsing/validation errors (`parse_error`, `schema_error`), the script retries at most once for the same model; if it fails again, the loop stops.
+- If file modifications are detected (`workspace_modified`), the script **never retries**; it halts immediately and lists the modified files.
+- If suspected secrets are found (`secret_suspected`) or the prompt exceeds 30,000 characters (`plan_too_long`), the review is not submitted until you trim or remove the problematic content.
+- When the loop halts, Claude asks whether you want to deliver directly without cross-model review (marked as unreviewed in the summary) or abort.
+
+**Raw logs location**
+
+Raw records for each review turn (`prompt.md`, raw agy output, `meta.json`, `guard.log`) are stored in the system temporary directory:
+`<temp>/rgs-facet/<session>/r<round>-<lens>/`
+The exact path is included in the review summary for inspection.
+
+**Plan mode permissions**
+
+A skill's `allowed-tools` is only active during the turn it is invoked. Across multiple turns in Plan mode, each review submission may prompt for permission. You can add the following rule to `permissions.allow` in your project or global `.claude/settings.json` to auto-allow it:
+
+```json
+"Bash(python -I <your-home-dir>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"
+```
+
+(Replace `<your-home-dir>` with your home directory; quote the path if it contains spaces. The rule must match the command Claude actually runs character for character. The exact form `${CLAUDE_SKILL_DIR}` expands to has not been verified yet; if you are still prompted, adjust the rule to the command shown in the prompt.)
+
+**Automatic triggering and budget adjustment**
+
+When many skills are installed in your project or global configuration, description truncation due to Claude Code's skill listing budget may prevent natural language auto-triggering; however, explicitly typing `/rgs-facet` is always available. To ensure auto-triggering, configure `skillOverrides` or increase `skillListingBudgetFraction` in `.claude/settings.json` (see official [Skills documentation](https://code.claude.com/docs/en/skills)).
+
 ## Delegation: batch and digest
 
 These subcommands do not change code. They hand large, noisy work where you only need the conclusion to Gemini. agy runs read-only in an empty temp folder and cannot reach your project.
@@ -279,6 +358,12 @@ Claude never writes product code itself without your consent, and never force-pu
   - blocks reading secret files
   - applies the same limits to subagents
   - denies everything if the hook itself fails
+- **rgs-facet four-layer defense**:
+  1. **Script-enforced parameters**: `facet_review.py` validates and locks arguments, banning flags like `--mode`, `--sandbox`, `--add-dir`, `--continue`, and enforcing `--model` starts with `gemini-`.
+  2. **Sealed temporary workspace**: The reviewer runs in an isolated, empty temporary directory with a sealed PreToolUse hook allowing only `finish` and `wait`, strictly blocking all tools (reading, writing, shell, subagents).
+  3. **Snapshot diff comparison**: Pre- and post-call snapshots of both the repo and workspace; any detected modifications immediately trigger `workspace_modified` and halt.
+  4. **Claude-side guard**: PreToolUse hook `guard_agy.py` blocks direct execution of raw `agy` by Claude.
+  - **Out of scope**: Files ignored by `.gitignore` and files outside the repo are not tracked by snapshots; if you edit project files during review execution, the snapshot detects it and halts.
 - **No trust in self-reports**: agy can report SUCCESS on a timeout, a denied tool, or a subagent that never replied. The scripts judge success from the actual output, the git diff, the scope check and the test results.
 - **Secret scan**: before every commit, the staged diff is scanned for key patterns and protected file names. A hit stops the commit.
 - **No auto-merge, no force push**: you always merge `/rgs-pr` PRs yourself, and `/rgs-main` only fast-forwards.
@@ -321,7 +406,7 @@ Claude never writes product code itself without your consent, and never force-pu
 
 | Situation | Cause and fix |
 | :-- | :-- |
-| The commands don't appear under `/` | Start a new session after installing; check that `~/.claude/skills/` has the three folders |
+| The commands don't appear under `/` | Start a new session after installing; check that `~/.claude/skills/` has the four folders (`rgs-core`, `rgs-main`, `rgs-pr`, `rgs-facet`) |
 | A permission prompt at every step | Add the rules from `doctor.py --init` to `.claude/settings.json`. The path in the rule must match the command exactly, including quotes and slashes |
 | ⚠️ agy quota exhausted | Use `status` to resume once quota is back, or add fallback models to `models` in the profile |
 | Gemini keeps getting blocked by the guard | Look at `guard_denials` in the report. To change a file outside the list, Claude decides whether to widen the list; to run a command, Claude runs it instead |
@@ -336,6 +421,11 @@ See [`references/troubleshooting.md`](skills/rgs-core/references/troubleshooting
 skills/
   rgs-main/SKILL.md      /rgs-main workflow
   rgs-pr/SKILL.md        /rgs-pr workflow and subcommands
+  rgs-facet/             /rgs-facet cross-model plan review
+    SKILL.md             /rgs-facet workflow and review loop
+    references/          summary and appendix format spec, verdict schema
+    scripts/             facet_review.py, prompt.py, verdict.py, guard_agy.py
+    tests/               unit tests (fake_agy.py stands in for agy)
   rgs-core/              shared core (no SKILL.md, so it is not a command)
     roles.md             roles and hard rules
     references/          gates and review standards, verified agy behaviour, sub-agent briefs, delegation, troubleshooting, script reference
@@ -343,6 +433,7 @@ skills/
     scripts/             rgs.py, review.py, guard.py, doctor.py, batch.py, digest.py, scope_check.py, secret_scan.py
     tests/               unit and integration tests (fake_agy.py stands in for agy, fake_gh.py for gh)
 docs/origins/            source material the workflow was distilled from (local paths removed)
+  facet/                 rgs-facet preflight test records and analysis
 install.ps1
 ```
 
@@ -350,6 +441,7 @@ Run the tests:
 
 ```bash
 python -m unittest discover -s skills/rgs-core/tests
+python -m unittest discover -s skills/rgs-facet/tests
 ```
 
 The tests never call the real agy or GitHub and use no quota. The integration tests build a temp repo with a bare remote and run the full flows:
@@ -369,6 +461,7 @@ To adjust the workflow:
   - `/rgs-main`: implementation, fix rounds, and a rebase-then-push after origin moved
   - `/rgs-pr` on GitHub: opening PRs, stacked PRs, review comments, retarget, and a draft release
   - batch and digest
+- `rgs-facet`: unit tests and sealed workspace calls with real agy are verified; end-to-end Plan mode workflow and trigger tests await local validation; macOS / Linux not verified; whether `${CLAUDE_SKILL_DIR}` is expanded in hook commands awaits local test confirmation.
 - agy upgrades can change its behaviour: tool names, the hook format, output fields. The verified behaviour is recorded in [`references/agy-cli.md`](skills/rgs-core/references/agy-cli.md); run `doctor.py` after an upgrade.
 - macOS / Linux are not verified yet.
 - The skills' internal documents and the prompt templates sent to Gemini are in Traditional Chinese. Set `language.docs` and `language.commits` to `en` to get English docs, commit messages and review reports in your project.

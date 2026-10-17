@@ -1,6 +1,6 @@
 ---
 name: rgs-pr
-description: 中大型專案的 Claude × Gemini（Antigravity CLI，agy）× sub-agent 協作開發流程，關鍵節點由使用者把關。流程是：需求與設計文件經使用者核准 → 切成里程碑 → 每個里程碑由 Gemini 依規格實作、Claude 審 diff → sub-agent 驗證、更新知識庫並開 PR → agy 以新對話做唯讀的合併閘門審查，Claude 逐條裁決 → 使用者在 GitHub 手動合併 → 知識沉澱 → 發佈 release。只要使用者輸入 /rgs-pr，或提到「照 SOP 開 PR」「Gemini 寫 code、Claude 審核、我自己合併」「多個畫面或功能的開發計畫」「里程碑」「發佈一版 release」，或回報「已合併 PR #N，請繼續」，就使用這個 skill。另有 batch、digest、status 子指令。單一小任務、可以直接 push main 的情境改用 rgs-main。
+description: 中大型專案的 Claude × Gemini（Antigravity CLI，agy）× sub-agent 協作開發流程，關鍵節點由使用者把關。流程是：需求與設計文件經使用者核准 → 切成里程碑 → 每個里程碑由 Gemini 依規格實作、Claude 審 diff → sub-agent 驗證、更新知識庫並開 PR → agy 以新對話做唯讀的合併閘門審查，Claude 逐條裁決 → 使用者在 GitHub 手動合併 → 知識沉澱 → 發佈 release。只要使用者輸入 /rgs-pr，或提到「照 SOP 開 PR」「Gemini 寫 code、Claude 審核、我自己合併」「多個畫面或功能的開發計畫」「里程碑」「發佈一版 release」，或回報「已合併 PR #N，請繼續」，就使用這個 skill。另有 batch、digest、status 子指令。單一小任務、可以直接 push main 的情境改用 rgs-main。只想讓其他模型審查計畫、不實作時，改用 rgs-facet。
 argument-hint: init | plan <需求> | run M<n> | merged <PR#> | release <版本> | status | batch … | digest …
 ---
 
@@ -39,7 +39,7 @@ argument-hint: init | plan <需求> | run M<n> | merged <PR#> | release <版本>
    - 已查證事實、決策紀錄、架構、風險
    - 里程碑（各自對應的需求、檔案、測試、驗證、相依）
    - 追溯矩陣、狀態總覽
-5. 選用：設計牽涉不熟的領域時，可以請 agy 唯讀審查設計：`review.py --diff-base <base> --spec docs/rgs/design.md`，或先 commit 到一個分支再審。逐條裁決意見。
+5. 選用：設計牽涉不熟的領域或風險較高時，可以先用 `/rgs-facet` 讓 Gemini 從 logic、gaps、verifiability 審查設計（在 Plan 模式下進行，結果附在設計文件），或照舊用 `review.py --diff-base <base> --spec docs/rgs/design.md`。逐條裁決意見。
 6. **G0**：把需求與設計摘要給使用者，取得核准後才開始 `run`。
 
 ## run M<n>（一個里程碑）

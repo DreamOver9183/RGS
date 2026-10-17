@@ -2,19 +2,20 @@
 
 **繁體中文** | [English](README.en.md)
 
-讓 Claude Code 指揮 Gemini（透過 Antigravity CLI `agy`）寫程式的兩個 skill。Claude 負責規劃與審查，Gemini 負責實作，Claude 的 sub-agent 處理測試、文件、git 等雜務。每個步驟都有品質閘門，中斷後也能從原處接著做。
+讓 Claude Code 指揮 Gemini（透過 Antigravity CLI `agy`）寫程式與審查的流程，共三個 skill。`/rgs-main` 與 `/rgs-pr` 中由 Claude 負責規劃與審查，Gemini 負責實作，Claude 的 sub-agent 處理測試、文件、git 等雜務；`/rgs-facet` 則是在 Plan 模式下讓 Gemini 從三個角度獨立審查 Claude 的實作計畫。每個步驟都有品質閘門，中斷後也能從原處接著做。
 
 流程整理自兩個實際專案（一個 Android App、一個 RimWorld Mod）的協作經驗，當時踩過的坑都寫進了腳本與規則。
 
 ## 目錄
 
 - [這是什麼](#這是什麼)
-- [兩個指令怎麼選](#兩個指令怎麼選)
+- [三個指令怎麼選](#三個指令怎麼選)
 - [事前準備](#事前準備)
 - [安裝](#安裝)
 - [第一次在專案中使用](#第一次在專案中使用)
 - [教學一：用 /rgs-main 完成一個小任務](#教學一用-rgs-main-完成一個小任務)
 - [教學二：用 /rgs-pr 開發多個里程碑](#教學二用-rgs-pr-開發多個里程碑)
+- [教學三：用 /rgs-facet 審查計畫](#教學三用-rgs-facet-審查計畫)
 - [委派：batch 與 digest](#委派batch-與-digest)
 - [中斷與續跑](#中斷與續跑)
 - [什麼時候需要你介入](#什麼時候需要你介入)
@@ -33,21 +34,22 @@
 | Claude（主對話） | 釐清需求、寫規格與修正指示、審查 Gemini 的 diff、裁決審查意見、維護知識庫 | 不直接改產品程式碼 |
 | Gemini（agy） | 依規格實作、依修正指示修改 | 不能跑 shell 或 git、不能改規格以外的檔案、不能讀機密檔 |
 | agy 審查者 | 開新對話、唯讀，從安全、正確性、架構、規格四個面向平行審查 | 不能寫任何檔案 |
+| agy 計畫審查者（rgs-facet） | 在空的暫存工作區、只能交回結果（sealed guard），從 logic、gaps、verifiability 三個角度審查計畫 | 不能讀寫任何檔案 |
 | Claude sub-agent | 跑 agy、跑測試、更新文件、commit、開 PR | 不修程式碼，失敗就停下回報 |
 
 為什麼這樣分工：Gemini 便宜、能長時間寫程式，但不能執行建置或測試，偶爾會寫錯或越界；Claude 的強項是把需求講清楚和把關品質。所以 Claude 只寫規格和審查，Gemini 能改哪些檔案由 hook 強制限制，而不只是寫在 prompt 裡請它遵守。
 
-## 兩個指令怎麼選
+## 三個指令怎麼選
 
-| | `/rgs-main` | `/rgs-pr` |
-| :-- | :-- | :-- |
-| 適合 | 小功能、修 bug、單人 repo | 多個功能或畫面、需要需求與設計文件、需要人工把關 |
-| 流程 | 規格 → Gemini 實作 → Claude 審查與測試 → 通過就 push 到 main | 需求 → 設計（你核准）→ 里程碑 → Gemini 實作 → Claude 審查 → 開 PR → agy 獨立審查 → **你合併** → 知識沉澱 → 發佈 |
-| 不通過時 | Claude 寫修正建議，Gemini 修改，再審一次 | 同左；agy 審查的每條意見都由 Claude 裁決並記錄 |
-| 產出 | main 上的一個 commit | 每個里程碑一個 PR，`docs/rgs/` 保存需求、設計、規格與審查紀錄 |
-| 子指令 | `status`、`batch`、`digest` | `init`、`plan`、`run M<n>`、`merged <PR#>`、`release <版本>`、`status`、`batch`、`digest` |
+| | `/rgs-main` | `/rgs-pr` | `/rgs-facet` |
+| :-- | :-- | :-- | :-- |
+| 適合 | 小功能、修 bug、單人 repo | 多個功能或畫面、需要需求與設計文件、需要人工把關 | 要動手之前，先讓另一家模型把計畫挑過一遍 |
+| 流程 | 規格 → Gemini 實作 → Claude 審查與測試 → 通過就 push 到 main | 需求 → 設計（你核准）→ 里程碑 → Gemini 實作 → Claude 審查 → 開 PR → agy 獨立審查 → **你合併** → 知識沉澱 → 發佈 | Plan 模式起草 → 三個角度送審 → Claude 逐條裁決、修訂、重審（最多 3 輪）→ 一次 ExitPlanMode 交出附審查摘要的計畫 |
+| 不通過時 | Claude 寫修正建議，Gemini 修改，再審一次 | 同左；agy 審查的每條意見都由 Claude 裁決並記錄 | Claude 仲裁採納或駁回，修訂計畫後重審；或停止迴圈由你決定是否直接交付 |
+| 產出 | main 上的一個 commit | 每個里程碑一個 PR，`docs/rgs/` 保存需求、設計、規格與審查紀錄 | Plan 模式的計畫檔（含審查摘要與附錄） |
+| 子指令 | `status`、`batch`、`digest` | `init`、`plan`、`run M<n>`、`merged <PR#>`、`release <版本>`、`status`、`batch`、`digest` | 無 |
 
-不確定時從 `/rgs-main` 開始。Claude 判斷任務需要多個里程碑時，會建議你改用 `/rgs-pr`。
+不確定時從 `/rgs-main` 開始。Claude 判斷任務需要多個里程碑時，會建議你改用 `/rgs-pr`。rgs-facet 只審計畫、不寫程式；計畫核准後可以接著用 `/rgs-main` 或 `/rgs-pr` 實作。
 
 ## 事前準備
 
@@ -76,16 +78,16 @@
    powershell -ExecutionPolicy Bypass -File RGS/install.ps1
    ```
 
-   它會在 `~/.claude/skills/` 下建立 `rgs-core`、`rgs-main`、`rgs-pr` 三個 junction，指向這個 repo，所以之後 `git pull` 更新 repo，skill 也會跟著更新。三個資料夾都要安裝：`rgs-main` 與 `rgs-pr` 會用到同層的 `rgs-core`。
+   它會在 `~/.claude/skills/` 下建立 `rgs-core`、`rgs-main`、`rgs-pr`、`rgs-facet` 四個 junction（三個 skill 資料夾加上 rgs-core），指向這個 repo，所以之後 `git pull` 更新 repo，skill 也會跟著更新。所有資料夾都要安裝：`rgs-main`、`rgs-pr` 與 `rgs-facet` 都會用到同層的 `rgs-core`。若個人指令目錄已存在舊版 `~/.claude/commands/rgs-facet.md`，安裝腳本會跳出衝突警告，請手動確認並處理。
 
-3. **開一個新的 Claude Code session。** skill 只在 session 開始時載入。輸入 `/` 應該能看到 `/rgs-main` 與 `/rgs-pr`。
+3. **開一個新的 Claude Code session。** skill 只在 session 開始時載入。輸入 `/` 應該能看到 `/rgs-main`、`/rgs-pr` 與 `/rgs-facet`。
 
 移除：`powershell -ExecutionPolicy Bypass -File RGS/install.ps1 -Uninstall`。這只會刪除 junction，不會刪除 repo。
 
 macOS／Linux 沒有安裝腳本，可以手動建立符號連結（尚未在這些平台驗證）：
 
 ```bash
-ln -s "$PWD/RGS/skills/rgs-core" "$PWD/RGS/skills/rgs-main" "$PWD/RGS/skills/rgs-pr" ~/.claude/skills/
+ln -s "$PWD/RGS/skills/rgs-core" "$PWD/RGS/skills/rgs-main" "$PWD/RGS/skills/rgs-pr" "$PWD/RGS/skills/rgs-facet" ~/.claude/skills/
 ```
 
 ## 第一次在專案中使用
@@ -213,6 +215,83 @@ Claude 會依序：
 4. 從合併後的 commit 建置產物，計算 SHA-256，撰寫 release notes。
 5. **建立 GitHub release 前，Claude 會先給你確認**，你也可以選擇只建 draft。
 
+## 教學三：用 /rgs-facet 審查計畫
+
+適合在動手實作前，希望由另一家模型（Gemini）對實作計畫進行嚴格檢驗時使用。
+
+> [!IMPORTANT]
+> **送審同意與資料隱私**：執行審查會把計畫全文透過 Antigravity CLI 送到 Google（Gemini）。當你明確輸入 `/rgs-facet` 或明確要求跨模型審查時，視為同意送審；若是 Claude 依 description 自行判斷載入，在第一次送審前會用一句話向你確認：「將把計畫全文送到 Gemini（Google），可以嗎？」。
+
+**1. 啟動與起草**
+
+```
+/rgs-facet <要規劃的任務>
+```
+
+Claude 會依序：
+1. 進入 Plan 模式（若尚未進入）。
+2. 進行環境快速檢查：`python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL> --quick`。
+3. 閱讀程式碼與文件（偵察），釐清不明確之處（用 AskUserQuestion 一次問完）。
+4. 在 Plan 模式計畫檔中起草計畫 v1（包含目標、步驟、驗收條件、proof 指令、風險與假設清單）。末尾加上 `<!-- facet:appendix -->` 標記（送審時會被自動截除，附錄不會送給審查者）。
+
+**2. 審查迴圈**
+
+每輪依序針對三個視角（lens）分別送審，一次一個角度，不平行進行：
+- `logic`：檢查邏輯矛盾、相依順序與可行性
+- `gaps`：檢查缺少的情境、遺漏的邊界條件與未定義的錯誤處理
+- `verifiability`：檢查步驟是否具備可驗證性與對應的 proof 指令
+
+每個角度單次耗時約 1–3 分鐘（預設模型 `gemini-4-argon-high`）。第二輪起會帶入上一輪該角度的處置 JSON，讓審查者確認先前提出的問題是否已被修復。
+
+**3. 裁決與修訂**
+
+每一輪三個角度完成後，Claude 會逐條仲裁審查者的 finding：
+- **採納**：有確切理由且具體可行的建議，納入並修訂計畫。
+- **駁回**：無依據、引用不存在內容、或與你的明確要求相牴觸者，直接駁回並說明理由。
+- **重大決策**：會改變計畫方向的重大抉擇，停下來詢問你。
+
+若有採納任何 finding，Claude 修訂計畫並進入下一輪（最多 3 輪）。若本輪三個角度皆 `APPROVED`，或仲裁後未採納任何 finding（仲裁收斂），則完成審查。
+
+**4. 交付**
+
+審查完成後，Claude 在 `<!-- facet:appendix -->` 標記之前寫入「審查摘要」、在標記之後的附錄寫入「逐輪審查結果」與「逐輪處置表」，最後呼叫一次 `ExitPlanMode` 呈現附審查摘要的完整計畫。
+
+**參數設定**
+
+參數位於 `skills/rgs-facet/SKILL.md` 開頭（`REVIEWER_MODEL`、`MAX_ROUNDS`、`AGY_TIMEOUT` 等）。更換模型只需修改該檔的一行（預設為 `gemini-4-argon-high`）。升級或更換模型後，建議先執行：
+
+```bash
+python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
+```
+
+**異常與重試**
+
+- 審查結果的 `status` 不是 `ok` 就不算核准，絕不自動更換模型。
+- 若遇到逾時（`timeout`）、agy 錯誤（`agy_error`）、無結構化輸出（`empty_output`）、解析或驗證錯誤（`parse_error`、`schema_error`），同一模型最多自動重試 1 次；仍失敗則停止迴圈。
+- 若偵測到改檔（`workspace_modified`），**絕不重試**，立即停止並告訴你哪些檔案被變動。
+- 計畫疑含機密（`secret_suspected`）或 prompt 超過 30,000 字元（`plan_too_long`）時不送審，由你精簡或排除後重試。
+- 迴圈停止時，Claude 會詢問你要「不經跨模型審查直接交付（摘要標示未審查）」或「中止」。
+
+**原始紀錄位置**
+
+每次送審的原始紀錄（`prompt.md`、agy 原始輸出、`meta.json`、`guard.log`）存於系統暫存目錄：
+`<temp>/rgs-facet/<session>/r<輪次>-<角度>/`
+審查摘要中會附上具體路徑供查閱。
+
+**Plan 模式的權限**
+
+skill 的 `allowed-tools` 只在呼叫的那一回合有效。進入 Plan 模式後跨回合送審時，每次呼叫腳本可能都會跳出權限確認。可將下列規則加入專案或全域 `.claude/settings.json` 的 `permissions.allow` 清單以自動放行：
+
+```json
+"Bash(python -I <你的家目錄>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"
+```
+
+（請將 `<你的家目錄>` 換成你的家目錄；路徑含空白時要加引號。規則必須和 Claude 實際執行的指令寫法一字不差；`${CLAUDE_SKILL_DIR}` 展開後的確切格式尚待本機驗收確認，若仍跳出確認，請依確認視窗中顯示的指令調整規則。）
+
+**自動觸發與預算調整**
+
+當專案或全域安裝的 skill 較多時，若 description 超出 Claude Code 的 skill 清單預算被拿掉，可能不會由自然語言自動觸發；但直接輸入 `/rgs-facet` 永遠可用。若希望確保自動觸發，可在 `.claude/settings.json` 中設定 `skillOverrides` 或調高 `skillListingBudgetFraction`（參見官方 [Skills 文件](https://code.claude.com/docs/en/skills)）。
+
 ## 委派：batch 與 digest
 
 這兩個子指令不改程式碼，而是把「量大、雜訊多、只需要結論」的工作交給 Gemini。執行時 agy 在一個空的暫存資料夾裡、以唯讀方式運作，碰不到你的專案。
@@ -272,6 +351,12 @@ Claude 不會在沒有你同意的情況下親手寫產品程式碼，也不會 
   - 禁止讀取機密檔
   - 子代理的工具呼叫同樣受限
   - hook 本身出錯時一律拒絕
+- **rgs-facet 四層防護**：
+  1. **參數由腳本寫死並檢查**：`facet_review.py` 檢查並寫死所有參數，禁止 `--mode`、`--sandbox`、`--add-dir`、`--continue` 等旗標，強制 `--model` 必須以 `gemini-` 開頭。
+  2. **空的暫存工作區與 sealed guard**：審查者的工作區是完全獨立的空暫存資料夾，工作區放 PreToolUse hook，sealed guard 只放行 `finish` 與 `wait`，嚴格封鎖讀檔、寫檔、shell 與子代理。
+  3. **呼叫前後快照比對**：送審前後比對專案與工作區快照，偵測到任何檔案異動即中止（`workspace_modified`）。
+  4. **Claude 端防護**：Claude 端的 `guard_agy.py` 擋下直接執行未經包裝的 `agy`。
+  - **未覆蓋範圍**：`.gitignore` 的檔案、專案以外的檔案不在快照比對範圍；你自己同時改檔會被當成改動。
 - **不相信自我回報**：agy 在 timeout、工具被拒、子代理沒回報時都可能回報 SUCCESS。腳本以實際產出、git diff、範圍檢查與測試結果判斷成敗。
 - **Secret scan**：commit 前掃描 staged diff 中的金鑰樣式與受保護檔名；命中就不 commit。
 - **不自動合併、不 force push**：`/rgs-pr` 的 PR 一律由你合併；`/rgs-main` 只做 fast-forward push。
@@ -314,7 +399,7 @@ Claude 不會在沒有你同意的情況下親手寫產品程式碼，也不會 
 
 | 狀況 | 原因與處理 |
 | :-- | :-- |
-| 輸入 `/` 看不到指令 | 安裝後要開新 session；確認 `~/.claude/skills/` 下有三個資料夾 |
+| 輸入 `/` 看不到指令 | 安裝後要開新 session；確認 `~/.claude/skills/` 下有四個資料夾（`rgs-core`、`rgs-main`、`rgs-pr`、`rgs-facet`） |
 | 每一步都跳出權限確認 | 把 `doctor.py --init` 列出的規則加進 `.claude/settings.json`；規則與指令的路徑寫法（引號、斜線）必須一字不差 |
 | ⚠️ agy 額度用完 | 等額度恢復後用 `status` 續跑，或在 profile 的 `models` 加上備援模型 |
 | Gemini 一直被 guard 擋 | 看回報中的 `guard_denials`：要改清單外的檔案就請 Claude 判斷是否擴充；要跑指令則由 Claude 代跑 |
@@ -329,6 +414,11 @@ Claude 不會在沒有你同意的情況下親手寫產品程式碼，也不會 
 skills/
   rgs-main/SKILL.md      /rgs-main 的流程
   rgs-pr/SKILL.md        /rgs-pr 的流程與子指令
+  rgs-facet/             /rgs-facet 跨模型計畫審查
+    SKILL.md             /rgs-facet 的流程與審查迴圈
+    references/          審查摘要與附錄格式規範、verdict schema
+    scripts/             facet_review.py、prompt.py、verdict.py、guard_agy.py
+    tests/               單元測試（fake_agy.py 代替 agy）
   rgs-core/              共用核心（沒有 SKILL.md，不會變成指令）
     roles.md             角色與硬性規則
     references/          品質閘門與審查標準、agy 已驗證行為、sub-agent brief、委派、疑難排解、腳本參考
@@ -336,6 +426,7 @@ skills/
     scripts/             rgs.py、review.py、guard.py、doctor.py、batch.py、digest.py、scope_check.py、secret_scan.py
     tests/               單元與整合測試（fake_agy.py 代替 agy，fake_gh.py 代替 gh）
 docs/origins/            整理流程時參考的原始素材（本機路徑已去除）
+  facet/                 rgs-facet 預檢實測紀錄與分析
 install.ps1
 ```
 
@@ -343,6 +434,7 @@ install.ps1
 
 ```bash
 python -m unittest discover -s skills/rgs-core/tests
+python -m unittest discover -s skills/rgs-facet/tests
 ```
 
 測試不會呼叫真的 agy 或 GitHub，也不會消耗額度。整合測試會建立暫存 repo 與 bare remote，完整跑過：
@@ -361,6 +453,7 @@ python -m unittest discover -s skills/rgs-core/tests
   - `/rgs-main`：實作、修正輪、遠端前進時 rebase 後推送
   - `/rgs-pr`：在 GitHub 上開 PR、堆疊 PR、審查留言、retarget、draft release
   - batch 與 digest
+- rgs-facet 的實測狀態：單元測試與 sealed 工作區的真 agy 呼叫已驗證；Plan 模式完整流程、觸發測試待本機驗收；macOS／Linux 未驗證；hook 指令中 `${CLAUDE_SKILL_DIR}` 是否會被代入待實測。
 - agy 升級後，行為可能改變（工具名稱、hook 格式、輸出欄位）。已驗證的行為記錄在 [`references/agy-cli.md`](skills/rgs-core/references/agy-cli.md)，升級後建議先跑 `doctor.py` 再使用。
 - macOS／Linux 尚未驗證。
 - Gemini 的審查意見只是參考，最後都由 Claude 逐條裁決；最終要不要合併，由你決定。
