@@ -31,6 +31,7 @@
 - 每個腳本在 stdout 印出一個 JSON 摘要，以 exit code 表示結果。新增或改變 exit code 時，同步更新 `references/scripts.md`。
 - 所有 agy 呼叫都經過 `rgs_common.call_agy`；guard（`guard.py`）預設拒絕，遇到未知工具、壞掉的輸入或例外都輸出拒絕。
 - 跨平台：腳本不依賴 bash、`timeout`、`find`、`/dev/null`；子程序的 stdin 用 `subprocess.DEVNULL`；直譯器名稱不寫死 `python3`。
+- 使用者可控的名稱（例如 session id）拼進路徑時，除了字元白名單，還要排除 `.` 與 `..`。
 - 給 `agy --json-schema` 的 schema 只用已驗證的關鍵字：`type`、`properties`、`required`、`enum`、`items`。
 
 ## 機密規則（不可違反）
