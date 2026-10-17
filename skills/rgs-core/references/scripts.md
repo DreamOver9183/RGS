@@ -41,6 +41,8 @@
 - `scope`：`changed`、`outside_allowed`、`formatting`
 - `main_checkout_changed_during_run`：主 checkout 在執行期間被改動（應為 false）
 
+`implement` 與 `fix` 每次執行前，會把輸入檔（`spec.md`、`implementer-rules.md`，`fix` 另有 `fix-<k>.md`，開新對話時還有 `before-fix-<k>.diff`）從 `.rgs/runs/<task>/` 複製到 worktree 內的 `.rgs-task/`（用 `.git/info/exclude` 排除），並重寫 guard 的設定。prompt、規則與 agy 參數只出現 worktree 內的路徑（不再 `--add-dir` run dir），guard 的讀取範圍也只有這個 worktree，實作者不會因為路徑而去讀主 checkout。`check` 的範圍檢查略過 `.rgs-task/`，`land`／`ship` 也不會把它 commit 進去；worktree 移除時它會一起刪掉。run dir 仍保留所有輸入檔、agy 輸出（`<label>.prompt.md`、`.json`、`.err`、`.response.md`）與這一輪的 `<label>.guard.log`（`<label>` 是 `implement` 或 `fix-<k>`）。要改規格就改 `.rgs/runs/<task>/spec.md`，下一次 `implement`／`fix` 會複製過去。
+
 ## review.py
 
 ```

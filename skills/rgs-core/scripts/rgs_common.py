@@ -373,6 +373,7 @@ def isolated_workspace(prefix, files=None, deny=(), read_commands=False):
 
 
 GUARD_FILES = ('.agents/rgs-guard.py', '.agents/rgs-guard.json', '.agents/rgs-guard.log', '.agents/hooks.json')
+TASK_INPUTS = '.rgs-task'  # implementer inputs inside the task worktree, excluded from git and never committed
 
 
 def guard_log_since(workspace, offset):

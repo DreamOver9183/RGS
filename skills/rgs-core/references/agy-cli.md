@@ -10,7 +10,8 @@ agy -p "<prompt>" --model <m> --output-format json --disable-slash-commands --pr
 ```
 
 - stdin 一律接 DEVNULL；執行在目標 worktree（cwd 就是 agy 的工作區）。
-- prompt 只放短指令與檔案路徑，內容（spec、diff、規則）放在檔案裡用 `--add-dir` 讓它讀。Windows 命令列上限約 32K 字元。
+- prompt 只放短指令與檔案路徑，內容（spec、diff、規則）放在工作區內的檔案裡讓它讀（rgs 用 worktree 內的 `.rgs-task/`、`.rgs-review/`）。Windows 命令列上限約 32K 字元。
+- prompt 與參數不要出現主 checkout 的路徑：審查者曾從主 checkout 下的 run dir 路徑推測專案根目錄，跑去讀主 checkout（被 guard 擋下）。所以 rgs 不用 `--add-dir` 指向 run dir。
 - 可用模型以 `agy models` 為準。2026-10-17 有：`gemini-4-argon-{low,medium,high}`、`gemini-3.8-flash-{low,medium,high}`、`claude-opus-5-5-*`、`claude-sonnet-5-5-*`、`gpt-oss-120b-medium`。rgs 預設實作與審查用 `gemini-3.8-flash-high`（實戰驗證過），批次用 `gemini-3.8-flash-low`。
 
 ## 輸出 JSON

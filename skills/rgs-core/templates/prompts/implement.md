@@ -1,4 +1,4 @@
-你在 git worktree `{{worktree}}` 中工作（分支 `{{branch}}`）。這是 rgs 流程交派給你的實作任務。
+你在 git worktree `{{worktree}}` 中工作（分支 `{{branch}}`）。這是 rgs 流程交派給你的實作任務。任務輸入放在 `{{inputs}}`（唯讀，不屬於專案程式碼）。
 
 1. 先讀 `{{rules}}`，整個任務期間都要遵守。
 2. 讀專案知識庫：{{knowledge_base}}（位於工作區根目錄；不存在的就略過）。

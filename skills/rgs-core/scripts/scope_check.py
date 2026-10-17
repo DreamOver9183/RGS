@@ -40,7 +40,7 @@ def format_problems(path):
 
 
 def check(worktree, allowed, ignore=()):
-    ignore = list(rc.GUARD_FILES) + list(ignore)
+    ignore = list(rc.GUARD_FILES) + [rc.TASK_INPUTS + '/**'] + list(ignore)
     changed = [(s, p) for s, p in rc.changed_files(worktree) if not rc.match_any(p, ignore)]
     outside = [p for _, p in changed if not rc.match_any(p, allowed)]
     formatting = {}

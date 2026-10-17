@@ -53,7 +53,7 @@ def secrets_list(profile):
 def policy_for(task, profile):
     return {
         'role': 'implementer',
-        'roots': [task['worktree'], task['run_dir']],
+        'roots': [task['worktree']],
         'write_allow': task['allowed'],
         'deny_read': list(profile['secrets'].get('deny_read') or []) + list(profile.get('worktree_copy') or []),
         'read_commands': True,
@@ -64,6 +64,24 @@ def policy_for(task, profile):
 def write_policy(task, profile):
     path = os.path.join(task['worktree'], '.agents', 'rgs-guard.json')
     rc.write_text(path, json.dumps(policy_for(task, profile), ensure_ascii=False, indent=2))
+
+
+def stage_inputs(task, profile, *extra):
+    """Refresh the guard policy and copy the task inputs from the run dir into <worktree>/.rgs-task/.
+
+    Returns {file name: path in the worktree}. agy gets only these paths: with run-dir paths (under the
+    main checkout) in the prompt, the reviewer guessed the project root from them and read the main checkout.
+    """
+    wt = task['worktree']
+    write_policy(task, profile)
+    rc.exclude_in_git(wt, [f'/{rc.TASK_INPUTS}/'])
+    paths = {}
+    for src in (task['spec'], task['rules'], *extra):
+        name = os.path.basename(src)
+        paths[name] = os.path.join(wt, rc.TASK_INPUTS, name)
+        os.makedirs(os.path.dirname(paths[name]), exist_ok=True)
+        shutil.copyfile(src, paths[name])
+    return paths
 
 
 def main_status(repo):
@@ -127,7 +145,8 @@ def cmd_prepare(args):
             copied.append(rel)
 
     rules = os.path.join(rd, 'implementer-rules.md')
-    rc.write_text(rules, rc.render_template('implementer-rules.md', repo, worktree=wt, run_dir=rd,
+    rc.write_text(rules, rc.render_template('implementer-rules.md', repo, worktree=wt,
+                                            inputs=os.path.join(wt, rc.TASK_INPUTS),
                                             secrets=secrets_list(profile), knowledge_base=kb_list(profile)))
     task = {
         'flow': args.flow, 'branch': branch, 'base': base, 'worktree': wt, 'run_dir': rd,
@@ -146,6 +165,9 @@ def cmd_prepare(args):
 def after_agy_run(repo, task_id, task, profile, result, label, offset, status_before, extra=None):
     entries, _ = rc.guard_log_since(task['worktree'], offset)
     denials = [e for e in entries if e.get('decision') == 'deny']
+    # The worktree's log goes away with the worktree; the run dir keeps this run's part.
+    rc.write_text(os.path.join(task['run_dir'], f'{label}.guard.log'),
+                  ''.join(json.dumps(e, ensure_ascii=False) + '\n' for e in entries))
     response_file = os.path.join(task['run_dir'], f'{label}.response.md')
     rc.write_text(response_file, result.response)
     scope = scope_check.check(task['worktree'], task['allowed'])
@@ -179,12 +201,14 @@ def after_agy_run(repo, task_id, task, profile, result, label, offset, status_be
 def cmd_implement(args):
     repo, profile, _, task = context(args.task)
     conf = profile['agy']['implementer']
+    io = stage_inputs(task, profile)
     prompt = rc.render_template('prompts/implement.md', repo, worktree=task['worktree'], branch=task['branch'],
-                                rules=task['rules'], spec=task['spec'], knowledge_base=kb_list(profile))
+                                inputs=os.path.join(task['worktree'], rc.TASK_INPUTS),
+                                rules=io['implementer-rules.md'], spec=io['spec.md'], knowledge_base=kb_list(profile))
     offset = rc.guard_log_size(task['worktree'])
     before = main_status(repo)
     result = rc.call_with_fallback([args.model] if args.model else conf['models'], prompt=prompt,
-                                   cwd=task['worktree'], mode='accept-edits', add_dirs=[task['run_dir']],
+                                   cwd=task['worktree'], mode='accept-edits',
                                    timeout_s=args.timeout or conf['timeout_s'],
                                    save_as=os.path.join(task['run_dir'], 'implement'))
     return after_agy_run(repo, args.task, task, profile, result, 'implement', offset, before)
@@ -204,26 +228,30 @@ def cmd_fix(args):
     if args.allow:
         task['allowed'] = sorted(set(task['allowed']) | {a.replace('\\', '/') for a in args.allow})
         rc.update_task(repo, args.task, allowed=task['allowed'])
-        write_policy(task, profile)
         extra = ' 這一輪另外允許修改：' + '、'.join(f'`{a}`' for a in args.allow) + '。'
     used = ((task.get('last_result') or {}).get('usage') or {}).get('input_tokens') or 0
     fresh = args.fresh or not task.get('conversation_id') or used > conf['fresh_after_input_tokens']
+    inputs = [fix_path]
     if fresh:
         diff_path = os.path.join(task['run_dir'], f'before-fix-{round_no}.diff')
         rc.write_text(diff_path, worktree_diff(task))
+        inputs.append(diff_path)
+    io = stage_inputs(task, profile, *inputs)  # also writes the policy with the widened allow list
+    fix, rules = io[f'fix-{round_no}.md'], io['implementer-rules.md']
+    if fresh:
         prompt = rc.render_template('prompts/fix-fresh.md', repo, worktree=task['worktree'], branch=task['branch'],
-                                    rules=task['rules'], spec=task['spec'], diff=diff_path, fix=fix_path,
+                                    inputs=os.path.join(task['worktree'], rc.TASK_INPUTS), rules=rules,
+                                    spec=io['spec.md'], diff=io[f'before-fix-{round_no}.diff'], fix=fix,
                                     knowledge_base=kb_list(profile), extra_allowed=extra)
         conversation = None
     else:
-        prompt = rc.render_template('prompts/fix.md', repo, fix=fix_path, rules=task['rules'], extra_allowed=extra)
+        prompt = rc.render_template('prompts/fix.md', repo, fix=fix, rules=rules, extra_allowed=extra)
         conversation = task['conversation_id']
     rc.update_task(repo, args.task, round=round_no)
     offset = rc.guard_log_size(task['worktree'])
     before = main_status(repo)
     result = rc.call_with_fallback([args.model] if args.model else conf['implementer']['models'], prompt=prompt,
-                                   cwd=task['worktree'], mode='accept-edits', add_dirs=[task['run_dir']],
-                                   conversation=conversation,
+                                   cwd=task['worktree'], mode='accept-edits', conversation=conversation,
                                    timeout_s=args.timeout or conf['implementer']['timeout_s'],
                                    save_as=os.path.join(task['run_dir'], f'fix-{round_no}'))
     return after_agy_run(repo, args.task, task, profile, result, f'fix-{round_no}', offset, before,
@@ -271,6 +299,8 @@ def stage_and_commit(task, profile, message_file, extra_allowed=()):
     if task.get('hooks_tracked'):
         rc.git(['checkout', '--', '.agents/hooks.json'], cwd=wt, check=False)
     rc.git(['add', '-A'], cwd=wt)
+    # .rgs-task/ is excluded in git; unstage it anyway in case the exclude line was removed.
+    rc.git(['reset', '-q', '--', rc.TASK_INPUTS], cwd=wt)
     if rc.run(['git', 'diff', '--cached', '--quiet'], cwd=wt, check=False).returncode == 0:
         return rc.EXIT_NO_RESULT, {'note': 'nothing to commit: the worktree has no changes'}
     scan = secret_scan.scan(cwd=wt, profile=profile)

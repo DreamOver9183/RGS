@@ -1,6 +1,7 @@
 """End-to-end runs of rgs.py and review.py against a temp repo with a bare remote and the fake agy."""
 import json
 import os
+import re
 import unittest
 
 from helpers import TempDir, calls, git, make_repo, run_script, write
@@ -47,6 +48,31 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         return data
 
+    def assert_agy_saw_only_the_worktree(self, label, in_prompt):
+        """implement/fix: agy gets paths in the task worktree only; the run dir keeps a copy of every input."""
+        call = calls(self.state)[-1]
+        argv, prompt = call['argv'], call['argv'][1]
+        wt = os.path.join(self.tmp.path, 'repo.rgs', 't1')
+        io = os.path.join(wt, '.rgs-task')
+        self.assertEqual(os.path.normcase(call['cwd']), os.path.normcase(wt))
+        for name in in_prompt:
+            self.assertIn(f'`{os.path.join(io, name)}`', prompt)
+        self.assertNotIn('--add-dir', argv)
+        self.assertEqual(call['missing_paths'], [])
+        self.assertEqual([os.path.normcase(r) for r in call['guard']['roots']], [os.path.normcase(wt)])
+        with open(os.path.join(io, 'implementer-rules.md'), encoding='utf-8') as f:
+            rules = f.read()
+        # repo.rgs/ also starts with "repo", so look for the main checkout as a whole folder name.
+        top = git(['rev-parse', '--show-toplevel'], self.repo)
+        roots = {p.replace('\\', '/').rstrip('/').lower() for p in (self.repo, top)}
+        for text in [*argv, call['cwd'], rules]:
+            text = text.replace('\\', '/').lower()
+            for root in roots:
+                self.assertIsNone(re.search(re.escape(root) + r'(?![\w.-])', text), text[:300])
+        rd = os.path.join(self.repo, '.rgs', 'runs', 't1')
+        for name in [*in_prompt, 'spec.md', 'implementer-rules.md', f'{label}.prompt.md', f'{label}.guard.log']:
+            self.assertTrue(os.path.isfile(os.path.join(rd, name)), name)
+
     def test_main_flow_lands_on_remote(self):
         data = self.prepare()
         wt = data['worktree']
@@ -59,6 +85,7 @@ class FlowTest(unittest.TestCase):
         first = calls(self.state)[-1]['argv']
         self.assertIn('accept-edits', first)
         self.assertNotIn('--conversation', first)
+        self.assert_agy_saw_only_the_worktree('implement', ['implementer-rules.md', 'spec.md'])
 
         notes = os.path.join(self.tmp.path, 'fix.md')
         write(notes, '1. calc.py: rename\n')
@@ -67,6 +94,7 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(data['round'], 1)
         self.assertFalse(data['fresh_conversation'])
         self.assertIn('--conversation', calls(self.state)[-1]['argv'])
+        self.assert_agy_saw_only_the_worktree('fix-1', ['fix-1.md', 'implementer-rules.md'])
 
         code, data, out = self.rgs('check', '--task', 't1', '--level', 'all')
         self.assertEqual(code, 0, out)
@@ -83,6 +111,29 @@ class FlowTest(unittest.TestCase):
         tree = git(['ls-tree', '-r', '--name-only', 'main'], self.remote).split()
         self.assertNotIn('.agents/hooks.json', tree)
         self.assertNotIn('.agents/rgs-guard.log', tree)
+        self.assertEqual([p for p in tree if p.startswith('.rgs-task/')], [])
+
+    def test_task_inputs_stay_out_of_scope_and_commits(self):
+        self.prepare()
+        self.rgs('implement', '--task', 't1')
+        wt = os.path.join(self.tmp.path, 'repo.rgs', 't1')
+        self.assertTrue(os.path.isfile(os.path.join(wt, '.rgs-task', 'spec.md')))
+        exclude = os.path.join(self.repo, '.git', 'info', 'exclude')
+        with open(exclude, encoding='utf-8') as f:
+            lines = f.read().splitlines()
+        self.assertIn('/.rgs-task/', lines)
+        # Even with the exclude line gone, scope checks skip .rgs-task/ and commits leave it out.
+        write(exclude, '\n'.join(l for l in lines if l != '/.rgs-task/') + '\n')
+        self.assertIn('.rgs-task/spec.md', git(['status', '--porcelain', '--untracked-files=all'], wt))
+        code, data, out = self.rgs('check', '--task', 't1')
+        self.assertEqual(code, 0, out)
+        self.assertEqual(data['scope']['changed'], ['calc.py'])
+        msg = os.path.join(self.tmp.path, 'msg.txt')
+        write(msg, 'feat: x\n')
+        code, data, out = self.rgs('ship', '--task', 't1', '--message-file', msg, '--no-pr')
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git(['show', '--name-only', '--format=', data['commit']], self.repo).split(), ['calc.py'])
+        self.assertTrue(os.path.isfile(os.path.join(wt, '.rgs-task', 'spec.md')))
 
     def test_land_rebases_when_remote_moved(self):
         self.prepare()
@@ -141,6 +192,9 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(data['fresh_conversation'])
         argv = calls(self.state)[-1]['argv']
         self.assertNotIn('--conversation', argv)
+        self.assert_agy_saw_only_the_worktree(
+            'fix-1', ['implementer-rules.md', 'spec.md', 'before-fix-1.diff', 'fix-1.md'])
+        self.assertIn('test_calc.py', calls(self.state)[-1]['guard']['write_allow'])
         policy_path = os.path.join(self.tmp.path, 'repo.rgs', 't1', '.agents', 'rgs-guard.json')
         with open(policy_path, encoding='utf-8') as f:
             policy = json.load(f)
