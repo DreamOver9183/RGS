@@ -88,5 +88,62 @@ class SecretScanTest(unittest.TestCase):
         self.assertFalse(secret_scan.scan(files=[path], profile=profile)['ok'])
 
 
+class ScanTextTest(unittest.TestCase):
+    def test_all_builtin_patterns_hit_and_masked(self):
+        samples = [
+            ('google-api-key', 'AIza' + '0' * 35),
+            ('openai-key', 's' + 'k-' + '1' * 32),
+            ('anthropic-key', 's' + 'k-ant-' + '2' * 32),
+            ('github-token', 'gh' + 'p_' + '3' * 36),
+            ('aws-access-key', 'AK' + 'IA' + '4' * 16),
+            ('slack-token', 'xo' + 'xb-' + '5' * 10),
+            ('private-key', '-----BEGIN ' + 'RSA ' + 'PRIVATE KEY-----'),
+            ('assigned-secret', 'api_' + 'key = "' + '6' * 16 + '"'),
+        ]
+        text = '\n'.join(sample for _, sample in samples)
+        hits = secret_scan.scan_text(text)
+
+        for line_no, (expected_kind, _) in enumerate(samples, 1):
+            line_hits = [h for h in hits if h['line'] == line_no]
+            self.assertGreaterEqual(len(line_hits), 1, f"Line {line_no} should have at least one hit")
+            kinds = {h['kind'] for h in line_hits}
+            self.assertIn(expected_kind, kinds, f"Line {line_no} kinds {kinds} should include {expected_kind}")
+            for h in line_hits:
+                self.assertEqual(h['file'], '<text>')
+                self.assertEqual(h['line'], line_no)
+
+        hits_str = str(hits)
+        for _, sample in samples:
+            self.assertNotIn(sample, hits_str)
+
+    def test_clean_text_returns_empty(self):
+        clean = "This is a clean plan.\nNo secrets here.\nStep 1: do something."
+        self.assertEqual(secret_scan.scan_text(clean), [])
+
+    def test_custom_name(self):
+        text = "Key: " + ("AK" + "IA" + "0" * 16)
+        hits = secret_scan.scan_text(text, name='plan.md')
+        self.assertTrue(hits)
+        for h in hits:
+            self.assertEqual(h['file'], 'plan.md')
+
+    def test_profile_custom_pattern(self):
+        token = "corp-" + "1234567890"
+        profile = rc.deep_merge(rc.DEFAULT_PROFILE, {'secrets': {'patterns': [r'corp-\d{10}']}})
+        hits_with_profile = secret_scan.scan_text(token, profile=profile)
+        self.assertEqual(len(hits_with_profile), 1)
+        self.assertEqual(hits_with_profile[0]['kind'], 'profile-1')
+
+        hits_without_profile = secret_scan.scan_text(token)
+        self.assertEqual(hits_without_profile, [])
+
+    def test_line_number_with_unicode_line_separator(self):
+        fake_key = "AK" + "IA" + "0" * 16
+        text = "line1 with unicode separator \u2028 still line 1\n" + fake_key
+        hits = secret_scan.scan_text(text)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]['line'], 2)
+
+
 if __name__ == '__main__':
     unittest.main()

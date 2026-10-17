@@ -70,12 +70,29 @@ def file_lines(paths):
                 yield path, i, text
 
 
-def scan(cwd=None, files=None, profile=None):
+def patterns_for(profile=None):
     profile = profile or rc.DEFAULT_PROFILE
     patterns = dict(BUILTIN)
-    for i, p in enumerate(profile['secrets'].get('patterns') or []):
+    for i, p in enumerate((profile.get('secrets') or {}).get('patterns') or []):
         patterns[f'profile-{i + 1}'] = p
-    deny = list(profile['secrets'].get('deny_read') or []) + list(profile.get('worktree_copy') or [])
+    return patterns
+
+
+def scan_text(text, profile=None, name='<text>'):
+    """Scan a string, e.g. a plan before it is sent to agy.
+
+    Returns a list of hits shaped like scan()['hits']: {'file': name, 'line': n, 'kind': k, 'match': masked}.
+    Patterns are the built-in ones plus profile secrets.patterns (profile defaults to rc.DEFAULT_PROFILE).
+    """
+    patterns = patterns_for(profile)
+    lines = ((name, i, line) for i, line in enumerate(text.split('\n'), 1))
+    return scan_lines(lines, patterns)
+
+
+def scan(cwd=None, files=None, profile=None):
+    profile = profile or rc.DEFAULT_PROFILE
+    patterns = patterns_for(profile)
+    deny = list((profile.get('secrets') or {}).get('deny_read') or []) + list(profile.get('worktree_copy') or [])
     if files:
         hits = scan_lines(file_lines(files), patterns)
         protected = [f for f in files if rc.match_any(f.replace('\\', '/'), deny)]
