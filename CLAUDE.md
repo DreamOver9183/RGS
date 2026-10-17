@@ -80,6 +80,11 @@
 
 - 堆疊的里程碑缺少剛合併的另一個里程碑 → 它的分支源自那次合併之前的 main（例如 M2 在 M1 合併前開出，M3、M4 疊在 M2 上）→ `prepare` 後確認需要的模組都在，缺少時在任務 worktree 合併 `origin/main`；父 PR 合併後、開子 PR 前再合併一次最新的 `origin/main`，PR 的 diff 才只含自己的改動。
 
+### Claude Code
+
+- skill 的 hook 沒有生效 → hook 指令中的 `${CLAUDE_SKILL_DIR}` 不會被代入、也不是環境變數（SKILL.md 內文的才會代入，展開成正斜線路徑）；hook 只拿得到 `$CLAUDE_PROJECT_DIR`，工作目錄是專案資料夾 → hook 用 `$HOME/.claude/skills/<skill>/...`，並寫明只在個人層安裝時生效。
+- 從 Claude Code session 裡執行 `claude -p` 回報未登入 → 子程序繼承了 session 的 `CLAUDE_*`、`ANTHROPIC_*` 變數，會走 host 的認證 → 執行前移除這些變數；CLI 本身要先在獨立終端機 `claude auth login`。
+
 ### Python
 
 - 腳本用 `python -I` 執行時 import 同資料夾或 rgs-core 的模組失敗 → Python 3.11 起 `-I` 不會把腳本所在資料夾放進 `sys.path` → 每個腳本與會被匯入的模組，自己把所在資料夾（rgs-facet 另外加上 `../rgs-core/scripts`）插進 `sys.path`，不依賴呼叫端。

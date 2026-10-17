@@ -20,6 +20,7 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | M4 | 已合併 | `feat/m4-facet-review`／#4（M3 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 86 | `facet_review.py`；Claude 審查 0 輪修正；真 agy（Gemini 4 Argon）實測通過；合併閘門第 1 輪 2 個次要意見都採納（`--session` 的 `.`、`..`；多餘 import），第 2 輪 PASS |
 | M5 | 已合併 | `feat/m5-facet-skill`／#5（M4 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 105 | rgs-facet skill 本體、安裝；Claude 審查 1 輪修正（指令寫死模型、doctor 路徑）；`install.ps1` 實跑通過；合併閘門 PASS，1 個次要意見延後到 M7 |
 | M6 | 已合併 | `feat/m6-facet-docs`／#6（M5 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 105 | 文件與 RGS 整合；Claude 審查 0 輪修正（README 權限說明措辭由 Claude 直接修正）；合併閘門 PASS，無意見 |
+| M7 | 已合併 | `fix/m7-guard-hook-docs`／#7 | rgs-core 127、rgs-facet 105 | 依本機驗收修正：guard hook 改用 `$HOME` 路徑、guard 攔下子 shell 與 command／eval 等前綴、README 權限說明與已驗證範圍；Claude 審查 0 輪修正；合併閘門第 1、2 輪各 1 個 major（引號內 `/agy` 誤擋、路徑加參數漏擋）都採納（fix-1、fix-2），第 3 輪 PASS |
 
 狀態只用：未開始、實作中、審查中、待合併、已合併、延後。
 
@@ -191,6 +192,14 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 - 要點：README 兩個語言版本同步；`agy-cli.md` 補上 Gemini 4 的模型 ID、`-p` 長度上限、耗時、log label；rgs-pr 的 plan 第 5 步改成建議用 `/rgs-facet` 硬化設計；三個 description 互相區隔
 - 驗證：auditor 稽核文件與程式一致
 
+### M7：依本機驗收修正 guard hook 與文件
+
+- 需求：R-8、R-9、R-11
+- 相依：M1–M6
+- 主要檔案：`skills/rgs-facet/SKILL.md`、`skills/rgs-facet/scripts/guard_agy.py`、`skills/rgs-facet/tests/{test_skill_md.py, test_guard_agy.py}`、`README.md`、`README.en.md`
+- 要點：hook 指令改用 `$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py`（實測 `${CLAUDE_SKILL_DIR}` 在 hook 中不會被代入）；guard 攔下 `(agy …)`、`{ agy …; }` 與 `command`、`eval`、`time`、`nohup`、`sudo` 前綴（PR #5 延後的意見）；README 權限說明改成實測結果、寫明 guard 只在個人層安裝時生效、已驗證範圍更新
+- 驗證：兩個測試指令；合併後用拋棄式 skill 或新 session 實測 guard 擋下 `agy --version`
+
 ### M6 之後：本機驗收
 
 不是 Gemini 的實作里程碑，由 Claude 與使用者進行：
@@ -202,10 +211,20 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 發現的問題開修正里程碑（M7 起），之後用 `/rgs-pr release` 發佈。
 
+本機驗收紀錄（2026-10-18）：
+
+| 項目 | 結果 | 備註 |
+| :-- | :-- | :-- |
+| C1 安裝 | 通過 | `install.ps1` 建立 `rgs-facet` junction；新 session 的 skills 與 slash_commands 都有 `rgs-facet` |
+| C2 Plan 模式權限與 guard（A7） | guard 未生效，已找到原因 | 使用者試跑時 `agy --version` 沒被擋。拋棄式專案層 skill 實測：skill 的 hook 會執行，但 hook 指令中的 `${CLAUDE_SKILL_DIR}` 不會被代入、也不是環境變數（hook 只有 `$CLAUDE_PROJECT_DIR`，工作目錄是專案資料夾）；改用 `python -I "$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py" \|\| true` 後成功擋下。SKILL.md 內文的 `${CLAUDE_SKILL_DIR}` 則會展開成 `C:/Users/<使用者>/.claude/skills/rgs-facet`（正斜線） |
+| C3 觸發測試 | 通過 | `claude -p` 無頭、每句一個新 session：`/rgs-facet` 觸發；自然語句 9/9；不該觸發 0/10（其中「用 Gemini 寫」「讓 Gemini 寫、你審」載入 rgs-main，「照 SOP 開 PR」載入 rgs-pr）。腳本與結果在 `.rgs/runs/acceptance/` |
+| C4 試跑 | 通過 | sandbox calc 專案、Plan 模式：三個角度第 1 輪都 APPROVED（Gemini 4 Argon (High)，各 32–53 秒），快照無變動、guard 無拒絕；原始紀錄在 `%TEMP%/rgs-facet/<session id>/`；計畫檔依 summary-format 寫入審查摘要與附錄；ExitPlanMode 只呼叫一次 |
+
 已排入 M7 的項目：
 
 - `guard_agy.is_direct_agy` 也要攔下 `(agy …)` 子 shell 與 `command`、`eval` 前綴（PR #5 審查意見，延後）。
-- 依本機驗收結果調整 hook 指令中 `${CLAUDE_SKILL_DIR}` 的寫法（若不會被代入）。
+- hook 指令改用 `$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py`（實測 `${CLAUDE_SKILL_DIR}` 在 hook 中不會被代入）；SKILL.md 備註與 README 寫明 guard 只在個人層安裝時生效。
+- README 的 Plan 模式權限規則改成實測格式：`Bash(python -I C:/Users/<使用者>/.claude/skills/rgs-facet/scripts/facet_review.py:*)`（待 C2 確認）。
 
 ## 追溯矩陣
 
@@ -216,6 +235,7 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | R-5、R-6 | M3 | `rgs-core/tests/test_guard.py`、`test_common.py`、`test_doctor.py` | #3 |
 | R-7 | M4 | `rgs-facet/tests/test_facet_review.py` | #4 |
 | R-8、R-9、R-10 | M5 | `rgs-facet/tests/test_skill_md.py`、`test_guard_agy.py` | #5 |
+| R-8、R-9、R-11（修正） | M7 | `rgs-facet/tests/test_skill_md.py`、`test_guard_agy.py` | #7 |
 | R-11 | M6 | auditor 稽核 | #6 |
 | R-12 | M1–M6 | `rgs-core/tests/*`；M2、M3 的 sandbox 實測 | #1–#6 |
 
@@ -235,6 +255,8 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 10. 多個提早結束的分支不要各自以長參數列呼叫同一個收尾函式；用一個結果 dict 或例外集中收尾（出處：M4 審查，未開修正輪）。
 11. 使用者可控的名稱拼進路徑時，字元白名單之外還要排除 `.` 與 `..`，否則會跑出預期的資料夾（出處：PR #4 fix-1）。
 12. SKILL.md 的指令要用參數佔位符（例如 `<REVIEWER_MODEL>`），不要寫死參數區塊的值；預先核准的指令路徑要和 `allowed-tools` 的寫法完全一致（出處：PR #5 fix-1）。
+13. 文件沒寫明的平台行為（例如 hook 指令會不會代入某個變數）要先實測再設計，不要假設；用拋棄式的專案層 skill 加無頭 `claude -p` 就能驗證（出處：本機驗收 C2）。
+14. 修正指示裡的判斷規則，送出前先用真與假的案例清單模擬一遍；PR #7 連續兩輪 major 都是規則本身的漏洞（出處：PR #7 fix-1、fix-2）。
 
 ## 修訂歷史
 
@@ -247,3 +269,4 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | v1.4 | 2026-10-17 | M4 已合併（PR #4）；教訓 11 |
 | v1.5 | 2026-10-18 | M5 已合併（PR #5）；教訓 12；排入 M7 的項目 |
 | v1.6 | 2026-10-18 | M6 已合併（PR #6）；M1–M6 全部完成，進入本機驗收 |
+| v1.7 | 2026-10-18 | 本機驗收紀錄；M7 已合併（PR #7）；教訓 13–14 |
