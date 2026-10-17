@@ -8,6 +8,11 @@ FAKE_AGY_WRITE     implement: comma-separated paths (relative to cwd) to append 
 FAKE_AGY_QUOTA_MODEL  quota_model: the model that reports quota exhaustion
 FAKE_AGY_DROP      batch_echo: an id left out of the first reply
 FAKE_AGY_LABEL     label string for the log file; empty string writes log without label line
+FAKE_AGY_MODELS    semicolon-separated model IDs for the 'models' subcommand
+
+Subcommands handled before reading environment:
+--version          prints 'agy 1.4.0'
+models             prints tab-separated model ID and display name
 """
 import json
 import os
@@ -35,6 +40,19 @@ def emit(data, code=0, stderr=''):
 
 
 def main():
+    if sys.argv[1:] == ['--version']:
+        print('agy 1.4.0')
+        sys.exit(0)
+    if sys.argv[1:2] == ['models']:
+        models_env = os.environ.get('FAKE_AGY_MODELS')
+        if models_env:
+            model_ids = [m.strip() for m in models_env.split(';') if m.strip()]
+        else:
+            model_ids = ['gemini-4-argon-high', 'gemini-3.8-flash-high', 'gemini-3.8-flash-low']
+        for mid in model_ids:
+            print(f'{mid}\tFake {mid}')
+        sys.exit(0)
+
     scenario = os.environ.get('FAKE_AGY_SCENARIO', 'ok')
     state_dir = os.environ.get('FAKE_AGY_DIR')
     prompt = arg('-p') or ''

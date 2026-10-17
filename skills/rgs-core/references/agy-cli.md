@@ -39,6 +39,7 @@ agy -p "<prompt>" --model <m> --output-format json --disable-slash-commands --pr
 - **`--mode plan` 擋不住寫入**（1.4.0 實測：plan 模式照樣建立了檔案）。`--sandbox` 在 1.2.17 也擋不住。
 - **唯一可靠的限制是 PreToolUse hook**：工作區的 `.agents/hooks.json` 會被載入（log：`loaded 1 named hooks from 1 hooks.json file(s)`），回 `{"decision":"deny"}` 就會擋下，**子代理的工具呼叫也會經過同一個 hook**。hook 以 `cmd /c` 執行，cwd 是 `.agents`；hook 程式當掉也會擋下（fail-closed）。
 - hook 的輸入：`{"toolCall": {"name", "args"}, "stepIdx", "conversationId", "workspacePaths", "transcriptPath", "artifactDirectoryPath", "modelName"}`。
+- 除了 implementer 與 reviewer，還有 `sealed` 角色，只放行 `finish` 與 `wait`，給把全部內容放在 prompt 裡、審查者不需要任何工具的呼叫（rgs-facet）使用。
 
 ## 1.4.0 的工具名稱與參數（guard 依此判斷）
 

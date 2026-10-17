@@ -6,6 +6,7 @@ SUCCESS when a tool was denied. A result counts only when the expected payload i
 """
 import copy
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -362,15 +363,85 @@ def remove_guard(workspace, hooks_tracked):
             pass
 
 
-def isolated_workspace(prefix, files=None, deny=(), read_commands=False):
-    """An empty temp folder (plus the given files) guarded read-only, for agy calls that need no repo."""
-    import tempfile
+def isolated_workspace(prefix, files=None, deny=(), read_commands=False, sealed=False):
+    """An empty temp folder (plus the given files) guarded read-only, for agy calls that need no repo.
+
+    sealed=True allows only finish and wait: the model cannot read, list, run commands or start subagents.
+    """
     path = tempfile.mkdtemp(prefix=prefix)
     for name, text in (files or {}).items():
         write_text(os.path.join(path, name), text)
-    install_guard(path, {'role': 'reviewer', 'roots': [path], 'write_allow': [], 'deny_read': list(deny),
+    role = 'sealed' if sealed else 'reviewer'
+    install_guard(path, {'role': role, 'roots': [path], 'write_allow': [], 'deny_read': list(deny),
                          'read_commands': read_commands, 'allow_commands': []})
     return path
+
+
+def snapshot(path, ignore=()):
+    """A comparable fingerprint of a folder (design D-8). Equal 'digest' values mean nothing changed.
+
+    Inside a git work tree the whole work tree is fingerprinted: HEAD plus every path that
+    `git status --porcelain -uall` reports, with a SHA-256 of its current content ('deleted' when gone).
+    Files that .gitignore hides are not covered. Elsewhere every file is fingerprinted by size and
+    mtime_ns (the .git folder is skipped). ignore: match_any() patterns on '/'-separated relative paths.
+    Returns {'kind': 'git'|'files', 'root': <folder>, 'digest': <hex>, 'entries': {rel: fingerprint}}.
+    """
+    is_git = False
+    if os.path.isdir(path):
+        proc = run(['git', 'rev-parse', '--show-toplevel'], cwd=path, check=False)
+        is_git = (proc.returncode == 0)
+    if is_git:
+        kind = 'git'
+        root = os.path.normpath(proc.stdout.strip())
+        entries = {}
+        head_proc = run(['git', 'rev-parse', 'HEAD'], cwd=root, check=False)
+        entries['<HEAD>'] = head_proc.stdout.strip() if head_proc.returncode == 0 else 'none'
+        for status, rel in changed_files(root):
+            if match_any(rel, ignore):
+                continue
+            full_path = os.path.join(root, rel.replace('/', os.sep))
+            if os.path.isdir(full_path):
+                sha = 'dir'
+            elif os.path.isfile(full_path):
+                try:
+                    with open(full_path, 'rb') as f:
+                        sha = hashlib.sha256(f.read()).hexdigest()
+                except OSError:
+                    sha = 'deleted'
+            else:
+                sha = 'deleted'
+            entries[rel] = f'{status}:{sha}'
+    else:
+        kind = 'files'
+        root = os.path.abspath(path)
+        entries = {}
+        for dirpath, dirnames, filenames in os.walk(root):
+            if '.git' in dirnames:
+                dirnames.remove('.git')
+            for filename in filenames:
+                full_path = os.path.join(dirpath, filename)
+                rel = os.path.relpath(full_path, root).replace('\\', '/')
+                if match_any(rel, ignore):
+                    continue
+                try:
+                    st = os.stat(full_path)
+                    entries[rel] = f'{st.st_size}:{st.st_mtime_ns}'
+                except OSError:
+                    pass
+    digest = hashlib.sha256(json.dumps(entries, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+    return {'kind': kind, 'root': root, 'digest': digest, 'entries': entries}
+
+
+def snapshot_changes(before, after):
+    """Sorted relative paths whose fingerprint differs (added, removed or changed); '<HEAD>' when HEAD moved."""
+    if before.get('kind') != after.get('kind') or before.get('root') != after.get('root'):
+        raise RgsError(f"cannot compare snapshots with different kind or root: "
+                       f"{before.get('kind')}@{before.get('root')} vs {after.get('kind')}@{after.get('root')}")
+    b_entries = before.get('entries', {})
+    a_entries = after.get('entries', {})
+    all_keys = set(b_entries.keys()) | set(a_entries.keys())
+    diff = [k for k in all_keys if b_entries.get(k) != a_entries.get(k)]
+    return sorted(diff)
 
 
 GUARD_FILES = ('.agents/rgs-guard.py', '.agents/rgs-guard.json', '.agents/rgs-guard.log', '.agents/hooks.json')
