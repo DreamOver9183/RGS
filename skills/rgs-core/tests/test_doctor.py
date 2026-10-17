@@ -95,12 +95,14 @@ class DoctorFacetTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         check = next(c for c in data['checks'] if c['check'] == 'model')
         self.assertEqual(check['status'], 'fail')
+        self.assertIn("must start with 'gemini-'", check['detail'])
 
     def test_facet_missing_model(self):
         code, data, out = run_script('doctor.py', ['--flow', 'facet', '--quick', '--json'], self.folder)
         self.assertEqual(code, 1, out)
         check = next(c for c in data['checks'] if c['check'] == 'model')
         self.assertEqual(check['status'], 'fail')
+        self.assertIn('--model <M> is required', check['detail'])
 
     def test_facet_with_init_exits_2(self):
         code, data, out = run_script('doctor.py', ['--flow', 'facet', '--init'], self.folder)

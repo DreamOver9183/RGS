@@ -508,13 +508,15 @@ class SnapshotTest(unittest.TestCase):
         other_dir = os.path.join(self.tmp.path, 'other')
         os.makedirs(other_dir)
         s_file = rc.snapshot(other_dir)
-        with self.assertRaises(rc.RgsError):
+        with self.assertRaises(rc.RgsError) as cm:
             rc.snapshot_changes(s_git, s_file)
+        self.assertIn('cannot compare snapshots with different kind or root', str(cm.exception))
         another_dir = os.path.join(self.tmp.path, 'another')
         os.makedirs(another_dir)
         s_file2 = rc.snapshot(another_dir)
-        with self.assertRaises(rc.RgsError):
+        with self.assertRaises(rc.RgsError) as cm:
             rc.snapshot_changes(s_file, s_file2)
+        self.assertIn('cannot compare snapshots with different kind or root', str(cm.exception))
 
 
 if __name__ == '__main__':
