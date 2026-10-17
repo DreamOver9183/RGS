@@ -1,11 +1,12 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 import unittest
 
-from helpers import FAKE_AGY, TempDir, calls, write
+from helpers import FAKE_AGY, TempDir, calls, git, make_repo, write
 
 import rgs_common as rc
 
@@ -350,6 +351,172 @@ class HelpersTest(unittest.TestCase):
         text = rc.render_template('prompts/fix.md', fix='F', rules='R', extra_allowed='')
         self.assertIn('`F`', text)
         self.assertNotIn('{{', text)
+
+
+class IsolatedWorkspaceTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TempDir()
+        self.created = []
+
+    def tearDown(self):
+        for path in self.created:
+            if os.path.exists(path):
+                def onerror(func, p, _):
+                    os.chmod(p, 0o700)
+                    func(p)
+                shutil.rmtree(path, onerror=onerror)
+        self.tmp.cleanup()
+
+    def test_isolated_workspace_sealed(self):
+        ws = rc.isolated_workspace(prefix='test_sealed_', files={'hello.txt': 'world'}, sealed=True)
+        self.created.append(ws)
+        guard_json = os.path.join(ws, '.agents', 'rgs-guard.json')
+        self.assertTrue(os.path.exists(guard_json))
+        with open(guard_json, encoding='utf-8') as f:
+            policy = json.load(f)
+        self.assertEqual(policy['role'], 'sealed')
+        content_file = os.path.join(ws, 'hello.txt')
+        self.assertTrue(os.path.exists(content_file))
+        with open(content_file, encoding='utf-8') as f:
+            self.assertEqual(f.read(), 'world')
+
+    def test_isolated_workspace_default_is_reviewer(self):
+        ws = rc.isolated_workspace(prefix='test_reviewer_', files={'notes.txt': 'data'})
+        self.created.append(ws)
+        guard_json = os.path.join(ws, '.agents', 'rgs-guard.json')
+        self.assertTrue(os.path.exists(guard_json))
+        with open(guard_json, encoding='utf-8') as f:
+            policy = json.load(f)
+        self.assertEqual(policy['role'], 'reviewer')
+        content_file = os.path.join(ws, 'notes.txt')
+        self.assertTrue(os.path.exists(content_file))
+        with open(content_file, encoding='utf-8') as f:
+            self.assertEqual(f.read(), 'data')
+
+
+class SnapshotTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TempDir()
+        self.folder = os.path.join(self.tmp.path, 'files_folder')
+        os.makedirs(self.folder)
+        write(os.path.join(self.folder, 'f1.txt'), 'content1')
+        write(os.path.join(self.folder, 'f2.txt'), 'content2')
+        profile = {'knowledge_base': ['CLAUDE.md'], 'commands': {'quick': ['true'], 'verify': ['true']}}
+        repo_root = os.path.join(self.tmp.path, 'repo_root')
+        os.makedirs(repo_root)
+        self.repo, _ = make_repo(repo_root, profile)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_files_no_changes_same_digest(self):
+        s1 = rc.snapshot(self.folder)
+        self.assertEqual(s1['kind'], 'files')
+        s2 = rc.snapshot(self.folder)
+        self.assertEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), [])
+
+    def test_files_added(self):
+        s1 = rc.snapshot(self.folder)
+        write(os.path.join(self.folder, 'f3.txt'), 'content3')
+        s2 = rc.snapshot(self.folder)
+        self.assertNotEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['f3.txt'])
+
+    def test_files_deleted(self):
+        s1 = rc.snapshot(self.folder)
+        os.remove(os.path.join(self.folder, 'f2.txt'))
+        s2 = rc.snapshot(self.folder)
+        self.assertNotEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['f2.txt'])
+
+    def test_files_modified_size_changed(self):
+        s1 = rc.snapshot(self.folder)
+        write(os.path.join(self.folder, 'f1.txt'), 'longer_content')
+        s2 = rc.snapshot(self.folder)
+        self.assertNotEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['f1.txt'])
+
+    def test_files_modified_mtime_changed(self):
+        path = os.path.join(self.folder, 'f1.txt')
+        s1 = rc.snapshot(self.folder)
+        st = os.stat(path)
+        new_mtime = st.st_mtime + 50
+        os.utime(path, (new_mtime, new_mtime))
+        s2 = rc.snapshot(self.folder)
+        self.assertNotEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['f1.txt'])
+
+    def test_files_ignore(self):
+        write(os.path.join(self.folder, '.agents', 'hooks.json'), '{}')
+        s1 = rc.snapshot(self.folder, ignore=('.agents/**',))
+        self.assertNotIn('.agents/hooks.json', s1['entries'])
+        write(os.path.join(self.folder, '.agents', 'rgs-guard.json'), '{}')
+        s2 = rc.snapshot(self.folder, ignore=('.agents/**',))
+        self.assertEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), [])
+
+    def test_files_git_folder_skipped(self):
+        git_dir = os.path.join(self.folder, '.git')
+        os.makedirs(git_dir)
+        write(os.path.join(git_dir, 'config'), 'dummy')
+        s = rc.snapshot(self.folder)
+        self.assertTrue(all(not k.startswith('.git') for k in s['entries']))
+
+    def test_git_no_changes(self):
+        s1 = rc.snapshot(self.repo)
+        self.assertEqual(s1['kind'], 'git')
+        s2 = rc.snapshot(self.repo)
+        self.assertEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), [])
+
+    def test_git_modified_tracked(self):
+        s1 = rc.snapshot(self.repo)
+        write(os.path.join(self.repo, 'calc.py'), 'def add(a, b):\n    return a + b + 1\n')
+        s2 = rc.snapshot(self.repo)
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['calc.py'])
+
+    def test_git_untracked_file(self):
+        s1 = rc.snapshot(self.repo)
+        write(os.path.join(self.repo, 'new_script.py'), 'print("hi")\n')
+        s2 = rc.snapshot(self.repo)
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['new_script.py'])
+
+    def test_git_deleted_tracked(self):
+        s1 = rc.snapshot(self.repo)
+        os.remove(os.path.join(self.repo, 'calc.py'))
+        s2 = rc.snapshot(self.repo)
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['calc.py'])
+
+    def test_git_already_modified_modified_again(self):
+        write(os.path.join(self.repo, 'calc.py'), 'def add(a, b):\n    return a + b + 10\n')
+        s1 = rc.snapshot(self.repo)
+        write(os.path.join(self.repo, 'calc.py'), 'def add(a, b):\n    return a + b + 20\n')
+        s2 = rc.snapshot(self.repo)
+        self.assertNotEqual(s1['digest'], s2['digest'])
+        self.assertEqual(rc.snapshot_changes(s1, s2), ['calc.py'])
+
+    def test_git_new_commit_moves_head(self):
+        s1 = rc.snapshot(self.repo)
+        git(['commit', '--allow-empty', '-m', 'new commit'], self.repo)
+        s2 = rc.snapshot(self.repo)
+        changes = rc.snapshot_changes(s1, s2)
+        self.assertIn('<HEAD>', changes)
+
+    def test_snapshot_changes_incompatible_raises_rgs_error(self):
+        s_git = rc.snapshot(self.repo)
+        other_dir = os.path.join(self.tmp.path, 'other')
+        os.makedirs(other_dir)
+        s_file = rc.snapshot(other_dir)
+        with self.assertRaises(rc.RgsError) as cm:
+            rc.snapshot_changes(s_git, s_file)
+        self.assertIn('cannot compare snapshots with different kind or root', str(cm.exception))
+        another_dir = os.path.join(self.tmp.path, 'another')
+        os.makedirs(another_dir)
+        s_file2 = rc.snapshot(another_dir)
+        with self.assertRaises(rc.RgsError) as cm:
+            rc.snapshot_changes(s_file, s_file2)
+        self.assertIn('cannot compare snapshots with different kind or root', str(cm.exception))
 
 
 if __name__ == '__main__':

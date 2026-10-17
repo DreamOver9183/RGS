@@ -140,5 +140,75 @@ class HookProcessTest(unittest.TestCase):
         self.assertEqual(out['decision'], 'deny')
 
 
+class SealedTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TempDir()
+        self.ws = os.path.join(self.tmp.path, 'ws')
+        os.makedirs(self.ws)
+        self.policy = {'role': 'sealed', 'roots': [self.ws]}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_finish_and_wait_allowed(self):
+        for name in ('finish', 'wait'):
+            self.assertIsNone(guard.decide(self.policy, {'name': name, 'args': {}}))
+
+    def test_other_tools_denied(self):
+        tools = [
+            ('write_to_file', {'TargetFile': os.path.join(self.ws, 'a.txt')}),
+            ('view_file', {'AbsolutePath': os.path.join(self.ws, 'a.txt')}),
+            ('list_dir', {'DirectoryPath': self.ws}),
+            ('grep_search', {'Pattern': 'foo'}),
+            ('run_command', {'CommandLine': 'Get-ChildItem', 'Cwd': self.ws}),
+            ('invoke_subagent', {'Prompt': 'foo'}),
+            ('send_message', {'Message': 'bar'}),
+            ('task_boundary', {}),
+            ('unknown_tool', {}),
+        ]
+        for name, args in tools:
+            reason = guard.decide(self.policy, {'name': name, 'args': args})
+            self.assertIsNotNone(reason, f'{name} should be denied')
+            self.assertIn(name, reason)
+            self.assertIn('only finish and wait are allowed in a sealed run', reason)
+
+    def test_policy_without_roots(self):
+        policy = {'role': 'sealed'}
+        self.assertIsNone(guard.decide(policy, {'name': 'finish', 'args': {}}))
+        self.assertIsNone(guard.decide(policy, {'name': 'wait', 'args': {}}))
+        reason = guard.decide(policy, {'name': 'view_file', 'args': {'AbsolutePath': 'foo'}})
+        self.assertIsNotNone(reason)
+        self.assertIn('view_file', reason)
+        self.assertIn('only finish and wait are allowed in a sealed run', reason)
+
+    def test_hook_process_with_sealed_policy_and_log(self):
+        agents = os.path.join(self.tmp.path, '.agents')
+        os.makedirs(agents, exist_ok=True)
+        shutil.copyfile(os.path.join(SCRIPTS, 'guard.py'), os.path.join(agents, 'rgs-guard.py'))
+        write(os.path.join(agents, 'rgs-guard.json'), json.dumps({'role': 'sealed'}))
+
+        def run(call):
+            proc = subprocess.run([sys.executable, '-I', 'rgs-guard.py'], cwd=agents, capture_output=True,
+                                  input=json.dumps({'toolCall': call, 'stepIdx': 1}).encode('utf-8'))
+            return json.loads(proc.stdout.decode('utf-8'))
+
+        out1 = run({'name': 'finish', 'args': {}})
+        self.assertEqual(out1['decision'], 'allow')
+
+        out2 = run({'name': 'view_file', 'args': {'AbsolutePath': os.path.join(self.tmp.path, 'a.py')}})
+        self.assertEqual(out2['decision'], 'deny')
+        self.assertIn('rgs-guard:', out2['reason'])
+        self.assertIn('only finish and wait are allowed in a sealed run', out2['reason'])
+
+        log_path = os.path.join(agents, 'rgs-guard.log')
+        with open(log_path, encoding='utf-8') as f:
+            lines = [json.loads(line) for line in f if line.strip()]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0]['tool'], 'finish')
+        self.assertEqual(lines[0]['decision'], 'allow')
+        self.assertEqual(lines[1]['tool'], 'view_file')
+        self.assertEqual(lines[1]['decision'], 'deny')
+
+
 if __name__ == '__main__':
     unittest.main()

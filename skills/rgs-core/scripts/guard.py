@@ -5,13 +5,16 @@ agy runs every hook command with the working directory set to the folder that ho
 {"decision": "allow"|"deny", "reason": ...}. Policy comes from rgs-guard.json next to it:
 
     {
-      "role": "implementer" | "reviewer",
+      "role": "implementer" | "reviewer" | "sealed",
       "roots": ["<workspace root>", "<extra read-only root>", ...],
       "write_allow": ["src/app.py", "tests/*.py"],   # relative to roots[0]; implementer only
       "deny_read": ["local.properties", "*_KEY_*", ".env*"],
       "read_commands": true,                        # allow read-only listing/search commands
       "allow_commands": []                          # exact command lines the implementer may run
     }
+
+The sealed role allows only finish (used to deliver --json-schema results) and wait;
+the model cannot read, list, run commands or start subagents.
 
 agy 1.4.0 has no separate list or search tool; the model lists and searches files with
 run_command (PowerShell). With read_commands on, a command is allowed only when every pipeline
@@ -44,6 +47,7 @@ WRITE_TOOLS = {'write_to_file', 'replace_file_content', 'multi_replace_file_cont
 # Tools that neither read the disk nor change it.
 NEUTRAL_TOOLS = {'finish', 'wait', 'task_boundary', 'notify_user', 'invoke_subagent', 'send_message',
                  'manage_subagents'}
+SEALED_TOOLS = {'finish', 'wait'}
 
 PATH_KEY = re.compile(r'(path|file|dir|directory|folder|uri|cwd)s?$', re.IGNORECASE)
 
@@ -96,6 +100,10 @@ def matches(rel, patterns):
 def decide(policy, call):
     name = call.get('name', '')
     args = call.get('args') or {}
+    if policy.get('role') == 'sealed':
+        if name in SEALED_TOOLS:
+            return None
+        return f'{name}: only finish and wait are allowed in a sealed run'
     roots = [norm(r, HERE) for r in policy['roots']]
     base = roots[0]
     deny_read = [os.path.normcase(p) for p in policy.get('deny_read', [])]

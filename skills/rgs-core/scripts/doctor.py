@@ -1,9 +1,11 @@
 """Check the environment for rgs and (with --init) draft the project's .rgs/profile.json.
 
-Usage (from inside the project):
+Usage:
     python -I doctor.py [--quick] [--flow main|pr] [--init] [--json]
+    python -I doctor.py --flow facet --model <M> [--quick] [--json]
 
 --quick skips the slower network checks (agy models list, quota table, gh auth).
+--flow facet checks python, agy, model and quota without requiring a git repo.
 --init writes .rgs/profile.json from what it detects (never overwrites) and .rgs/.gitignore,
 and prints the Claude Code permission rules the user can add themselves.
 Exit code 0 = no failures (warnings allowed), 1 = at least one failure.
@@ -97,10 +99,13 @@ def main():
     rc.setup_stdio()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--quick', action='store_true')
-    ap.add_argument('--flow', choices=['main', 'pr'], default='main')
+    ap.add_argument('--flow', choices=['main', 'pr', 'facet'], default='main')
+    ap.add_argument('--model', default=None)
     ap.add_argument('--init', action='store_true')
     ap.add_argument('--json', action='store_true')
     args = ap.parse_args()
+    if args.flow == 'facet' and args.init:
+        ap.error('--init is not used with --flow facet')
     checks = []
 
     def add(name, status, detail=''):
@@ -117,75 +122,98 @@ def main():
         agy = None
         add('agy', 'fail', str(e))
 
-    repo = None
-    try:
-        repo = rc.main_checkout('.')
-        add('git repo', 'ok', repo)
-    except rc.RgsError as e:
-        add('git repo', 'fail', str(e))
-    profile, has_profile = (rc.load_profile(repo) if repo else (rc.DEFAULT_PROFILE, False))
-
-    if repo and args.init and not has_profile:
-        draft = detect_profile(repo)
-        rc.ensure_rgs_gitignore(repo)
-        rc.write_text(os.path.join(rc.rgs_dir(repo), 'profile.json'), json.dumps(draft, ensure_ascii=False, indent=2) + '\n')
-        profile, has_profile = rc.load_profile(repo)
-        add('profile', 'warn', '.rgs/profile.json drafted from detection: review commands, secrets and knowledge base')
-    elif has_profile:
-        missing = [k for k in ('quick', 'verify') if not profile['commands'].get(k)]
-        add('profile', 'warn' if missing else 'ok',
-            '.rgs/profile.json' + (f' (no {"/".join(missing)} commands)' if missing else ''))
-    else:
-        add('profile', 'warn', 'no .rgs/profile.json; run doctor.py --init')
-
-    if repo:
-        remote, base = profile['remote'], profile['base_branch']
-        if rc.has_remote(repo, remote):
-            url = rc.git(['remote', 'get-url', remote], cwd=repo, check=False)
-            add('remote', 'ok', f'{remote} = {url}')
-            rc.git(['fetch', '-q', remote, base], cwd=repo, check=False)
-            counts = rc.git(['rev-list', '--left-right', '--count', f'{base}...{remote}/{base}'], cwd=repo, check=False)
-            if counts:
-                ahead, behind = counts.split()
-                add('base branch', 'ok' if ahead == behind == '0' else 'warn',
-                    f'{base}: {ahead} ahead / {behind} behind {remote}/{base}')
+    if args.flow == 'facet':
+        if not args.model:
+            add('model', 'fail', '--model <M> is required for --flow facet')
+        elif not args.model.startswith('gemini-'):
+            add('model', 'fail', f"invalid model {args.model!r}: must start with 'gemini-' (agy default may be Claude)")
         else:
-            add('remote', 'warn' if args.flow == 'main' else 'fail', f'no remote named {remote}')
-        current = rc.git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo, check=False)
-        add('current branch', 'ok' if current == base else 'warn', current)
-        # land/ship commit in the task worktree; without an identity git refuses and the run stops there.
-        ident = rc.run(['git', 'var', 'GIT_COMMITTER_IDENT'], cwd=repo, check=False)
-        add('git identity', 'ok' if ident.returncode == 0 else 'fail',
-            ident.stdout.rsplit('>', 1)[0] + '>' if ident.returncode == 0 else
-            'git user.name / user.email not set; run git config user.name … and git config user.email … '
-            '(in this repo or with --global)')
-        dirty = [p for _, p in rc.changed_files(repo) if not p.startswith('.rgs/')]
-        add('working tree', 'ok' if not dirty else 'warn',
-            'clean' if not dirty else f'{len(dirty)} changed file(s), e.g. {", ".join(dirty[:3])}')
-        kb_missing = [k for k in profile.get('knowledge_base') or [] if not os.path.exists(os.path.join(repo, k))]
-        add('knowledge base', 'ok' if not kb_missing else 'warn',
-            'present' if not kb_missing else f'missing {", ".join(kb_missing)} (create it from knowledge-base-skeleton.md)')
-        root = rc.worktree_root(repo, profile)
-        in_temp = os.path.normcase(root).startswith(os.path.normcase(tempfile.gettempdir()))
-        add('worktree root', 'warn' if in_temp else 'ok',
-            root + (' (inside %TEMP%: Smart App Control can block test DLLs there)' if in_temp else ''))
+            add('model', 'ok', args.model)
 
-    if not args.quick:
-        if agy:
+        if agy and args.model:
             code, out = quiet([*agy, 'models'], timeout=60)
-            wanted = sorted({m for role in ('implementer', 'reviewer', 'batch', 'digest')
-                             for m in profile['agy'][role]['models']})
-            absent = [m for m in wanted if m not in out]
-            add('agy models', 'ok' if code == 0 and not absent else 'warn',
-                'all configured models available' if not absent else f'not listed: {", ".join(absent)}')
+            if code != 0:
+                add('agy models', 'fail', f'agy models failed ({code}): {out.strip()[:200]}')
+            else:
+                model_ids = [line.split()[0] for line in out.strip().splitlines() if line.split()]
+                if args.model in model_ids:
+                    add('agy models', 'ok', args.model)
+                else:
+                    add('agy models', 'fail', f'not listed: {args.model}')
+
+        if not args.quick and agy:
             code, out = quiet([*agy, '-p', '/usage'], timeout=90, env=dict(os.environ, MSYS_NO_PATHCONV='1'))
             add('agy quota', 'ok' if code == 0 else 'warn', ' | '.join(out.strip().splitlines()[:8])[:600])
-        if args.flow == 'pr':
-            try:
-                code, out = quiet([*rc.find_gh(), 'auth', 'status'], timeout=30)
-                add('gh auth', 'ok' if code == 0 else 'fail', out.strip().splitlines()[0][:120] if out.strip() else '')
-            except rc.RgsError as e:
-                add('gh', 'fail', str(e))
+    else:
+        repo = None
+        try:
+            repo = rc.main_checkout('.')
+            add('git repo', 'ok', repo)
+        except rc.RgsError as e:
+            add('git repo', 'fail', str(e))
+        profile, has_profile = (rc.load_profile(repo) if repo else (rc.DEFAULT_PROFILE, False))
+
+        if repo and args.init and not has_profile:
+            draft = detect_profile(repo)
+            rc.ensure_rgs_gitignore(repo)
+            rc.write_text(os.path.join(rc.rgs_dir(repo), 'profile.json'), json.dumps(draft, ensure_ascii=False, indent=2) + '\n')
+            profile, has_profile = rc.load_profile(repo)
+            add('profile', 'warn', '.rgs/profile.json drafted from detection: review commands, secrets and knowledge base')
+        elif has_profile:
+            missing = [k for k in ('quick', 'verify') if not profile['commands'].get(k)]
+            add('profile', 'warn' if missing else 'ok',
+                '.rgs/profile.json' + (f' (no {"/".join(missing)} commands)' if missing else ''))
+        else:
+            add('profile', 'warn', 'no .rgs/profile.json; run doctor.py --init')
+
+        if repo:
+            remote, base = profile['remote'], profile['base_branch']
+            if rc.has_remote(repo, remote):
+                url = rc.git(['remote', 'get-url', remote], cwd=repo, check=False)
+                add('remote', 'ok', f'{remote} = {url}')
+                rc.git(['fetch', '-q', remote, base], cwd=repo, check=False)
+                counts = rc.git(['rev-list', '--left-right', '--count', f'{base}...{remote}/{base}'], cwd=repo, check=False)
+                if counts:
+                    ahead, behind = counts.split()
+                    add('base branch', 'ok' if ahead == behind == '0' else 'warn',
+                        f'{base}: {ahead} ahead / {behind} behind {remote}/{base}')
+            else:
+                add('remote', 'warn' if args.flow == 'main' else 'fail', f'no remote named {remote}')
+            current = rc.git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo, check=False)
+            add('current branch', 'ok' if current == base else 'warn', current)
+            # land/ship commit in the task worktree; without an identity git refuses and the run stops there.
+            ident = rc.run(['git', 'var', 'GIT_COMMITTER_IDENT'], cwd=repo, check=False)
+            add('git identity', 'ok' if ident.returncode == 0 else 'fail',
+                ident.stdout.rsplit('>', 1)[0] + '>' if ident.returncode == 0 else
+                'git user.name / user.email not set; run git config user.name … and git config user.email … '
+                '(in this repo or with --global)')
+            dirty = [p for _, p in rc.changed_files(repo) if not p.startswith('.rgs/')]
+            add('working tree', 'ok' if not dirty else 'warn',
+                'clean' if not dirty else f'{len(dirty)} changed file(s), e.g. {", ".join(dirty[:3])}')
+            kb_missing = [k for k in profile.get('knowledge_base') or [] if not os.path.exists(os.path.join(repo, k))]
+            add('knowledge base', 'ok' if not kb_missing else 'warn',
+                'present' if not kb_missing else f'missing {", ".join(kb_missing)} (create it from knowledge-base-skeleton.md)')
+            root = rc.worktree_root(repo, profile)
+            in_temp = os.path.normcase(root).startswith(os.path.normcase(tempfile.gettempdir()))
+            add('worktree root', 'warn' if in_temp else 'ok',
+                root + (' (inside %TEMP%: Smart App Control can block test DLLs there)' if in_temp else ''))
+
+        if not args.quick:
+            if agy:
+                code, out = quiet([*agy, 'models'], timeout=60)
+                wanted = sorted({m for role in ('implementer', 'reviewer', 'batch', 'digest')
+                                 for m in profile['agy'][role]['models']})
+                absent = [m for m in wanted if m not in out]
+                add('agy models', 'ok' if code == 0 and not absent else 'warn',
+                    'all configured models available' if not absent else f'not listed: {", ".join(absent)}')
+                code, out = quiet([*agy, '-p', '/usage'], timeout=90, env=dict(os.environ, MSYS_NO_PATHCONV='1'))
+                add('agy quota', 'ok' if code == 0 else 'warn', ' | '.join(out.strip().splitlines()[:8])[:600])
+            if args.flow == 'pr':
+                try:
+                    code, out = quiet([*rc.find_gh(), 'auth', 'status'], timeout=30)
+                    add('gh auth', 'ok' if code == 0 else 'fail', out.strip().splitlines()[0][:120] if out.strip() else '')
+                except rc.RgsError as e:
+                    add('gh', 'fail', str(e))
 
     failures = [c for c in checks if c['status'] == 'fail']
     result = {'ok': not failures, 'checks': checks}

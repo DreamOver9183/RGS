@@ -59,7 +59,7 @@ review.py --diff-base REF [--head REF]             # 任意本地範圍
 
 | 腳本 | 用途 |
 | :-- | :-- |
-| `doctor.py [--quick] [--flow main\|pr] [--init] [--json]` | 環境檢查（含 git 身分：沒有 user.name／user.email 時 `land`／`ship` 無法 commit）；`--init` 產生 `.rgs/profile.json` 草稿並列出可加的權限規則 |
+| `doctor.py [--quick] [--flow main\|pr\|facet] [--model <M>] [--init] [--json]` | 環境檢查（含 git 身分：沒有 user.name／user.email 時 `land`／`ship` 無法 commit）；`--init` 產生 `.rgs/profile.json` 草稿並列出可加的權限規則；`--flow facet --model <M>` 不需要 git repo，檢查 Python、agy、模型 ID 與額度，給 rgs-facet 用 |
 | `scope_check.py --task ID` | 單獨跑範圍檢查 |
 | `secret_scan.py [--cwd DIR] [--files …]` | 掃描 staged diff 或指定檔案 |
 | `batch.py …` | 大量資料批次，見 `delegation.md` |

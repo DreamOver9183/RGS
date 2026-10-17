@@ -57,5 +57,57 @@ class PermissionRulesTest(unittest.TestCase):
         self.assertFalse(any('"' in r for r in rules))
 
 
+class DoctorFacetTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TempDir()
+        self.folder = os.path.join(self.tmp.path, 'plain_dir')
+        os.makedirs(self.folder)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_facet_quick_ok(self):
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--model', 'gemini-4-argon-high', '--quick', '--json'], self.folder)
+        self.assertEqual(code, 0, out)
+        checks = {c['check']: c for c in data['checks']}
+        for expected in ('python', 'agy', 'model', 'agy models'):
+            self.assertIn(expected, checks)
+            self.assertNotEqual(checks[expected]['status'], 'fail')
+        self.assertNotIn('git repo', checks)
+
+    def test_facet_model_not_listed(self):
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--model', 'gemini-9-x', '--quick', '--json'], self.folder)
+        self.assertEqual(code, 1, out)
+        check = next(c for c in data['checks'] if c['check'] == 'agy models')
+        self.assertEqual(check['status'], 'fail')
+        self.assertIn('not listed: gemini-9-x', check['detail'])
+
+    def test_facet_not_substring_match(self):
+        env = {'FAKE_AGY_MODELS': 'gemini-4-argon-high'}
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--model', 'gemini-4-argon', '--quick', '--json'], self.folder, extra_env=env)
+        self.assertEqual(code, 1, out)
+        check = next(c for c in data['checks'] if c['check'] == 'agy models')
+        self.assertEqual(check['status'], 'fail')
+        self.assertIn('not listed: gemini-4-argon', check['detail'])
+
+    def test_facet_non_gemini_model(self):
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--model', 'claude-opus-5-5', '--quick', '--json'], self.folder)
+        self.assertEqual(code, 1, out)
+        check = next(c for c in data['checks'] if c['check'] == 'model')
+        self.assertEqual(check['status'], 'fail')
+        self.assertIn("must start with 'gemini-'", check['detail'])
+
+    def test_facet_missing_model(self):
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--quick', '--json'], self.folder)
+        self.assertEqual(code, 1, out)
+        check = next(c for c in data['checks'] if c['check'] == 'model')
+        self.assertEqual(check['status'], 'fail')
+        self.assertIn('--model <M> is required', check['detail'])
+
+    def test_facet_with_init_exits_2(self):
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--init'], self.folder)
+        self.assertEqual(code, 2, out)
+
+
 if __name__ == '__main__':
     unittest.main()
