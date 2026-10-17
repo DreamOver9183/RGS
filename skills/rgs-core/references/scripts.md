@@ -7,7 +7,7 @@
 | code | 意義 | 該怎麼做 |
 | --: | :-- | :-- |
 | 0 | 成功 | 繼續 |
-| 2 | 參數錯誤（argparse） | 修正指令 |
+| 2 | 參數錯誤（argparse），或 agy 參數／模型不合規（`call_agy` 的檢查） | 修正指令；檢查 profile 的模型是否以 `gemini-` 開頭 |
 | 3 | 所有模型都額度用完 | ⚠️ 回報使用者，問要換模型或稍後再試 |
 | 4 | 有檔案超出允許清單，或格式問題 | 看 `scope.outside_allowed`／`formatting`；寫修正指示，或用 `fix --allow` 擴充清單（要有理由） |
 | 5 | agy 沒有可用結果（timeout、錯誤、空回應、沒有改任何檔案） | 看 `agy.kind`、`agy.detail` 與 `.rgs/runs/<task>/*.err`；可重跑一次，再失敗就回報 |

@@ -1,10 +1,105 @@
 import json
 import os
+import re
+import subprocess
+import time
 import unittest
 
-from helpers import FAKE_AGY, TempDir, write
+from helpers import FAKE_AGY, TempDir, calls, write
 
 import rgs_common as rc
+
+
+def pid_exists(pid):
+    if os.name == 'nt':
+        res = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        for line in res.stdout.splitlines():
+            if any(part == str(pid) for part in line.strip().split()):
+                return True
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+
+def kill_pid(pid):
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'],
+                       capture_output=True, stdin=subprocess.DEVNULL)
+    else:
+        import signal
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+class CheckAgyArgsTest(unittest.TestCase):
+    def test_forbidden_always_rejected_for_both_roles(self):
+        for flag in rc.FORBIDDEN_ALWAYS:
+            for role in ('implementer', 'reviewer'):
+                with self.assertRaises(rc.RgsError) as ctx:
+                    rc.check_agy_args([flag], role, 'gemini-3.8-flash-high')
+                self.assertEqual(ctx.exception.code, 2)
+                self.assertIn(flag, str(ctx.exception))
+
+    def test_forbidden_always_with_equals(self):
+        for role in ('implementer', 'reviewer'):
+            with self.assertRaises(rc.RgsError) as ctx:
+                rc.check_agy_args(['--sandbox=true'], role, 'gemini-3.8-flash-high')
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn('--sandbox', str(ctx.exception))
+
+    def test_forbidden_for_reviewer(self):
+        for flag in rc.FORBIDDEN_FOR_REVIEWER:
+            with self.assertRaises(rc.RgsError) as ctx:
+                rc.check_agy_args([flag], 'reviewer', 'gemini-3.8-flash-high')
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn(flag, str(ctx.exception))
+
+    def test_implementer_allowed_and_forbidden_flags(self):
+        # Allowed for implementer
+        rc.check_agy_args(['--mode', 'accept-edits'], 'implementer', 'gemini-3.8-flash-high')
+        rc.check_agy_args(['--conversation', 'conv-123'], 'implementer', 'gemini-3.8-flash-high')
+        rc.check_agy_args(['--add-dir', 'src'], 'implementer', 'gemini-3.8-flash-high')
+
+        # Rejected modes for implementer
+        with self.assertRaises(rc.RgsError) as ctx:
+            rc.check_agy_args(['--mode', 'auto'], 'implementer', 'gemini-3.8-flash-high')
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertTrue('--mode' in str(ctx.exception) or 'auto' in str(ctx.exception))
+
+        with self.assertRaises(rc.RgsError) as ctx:
+            rc.check_agy_args(['--mode=plan'], 'implementer', 'gemini-3.8-flash-high')
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertTrue('--mode' in str(ctx.exception) or 'plan' in str(ctx.exception))
+
+    def test_prompt_content_not_mistaken_for_flags(self):
+        rc.check_agy_args(['-p', 'please do not use --yolo or --sandbox'], 'reviewer', 'gemini-3.8-flash-high')
+        rc.check_agy_args(['-p', '--dangerously-skip-permissions'], 'implementer', 'gemini-3.8-flash-high')
+
+    def test_model_validation(self):
+        for bad_model in (None, '', 'claude-opus-5-5', 'Gemini-4'):
+            with self.assertRaises(rc.RgsError) as ctx:
+                rc.check_agy_args([], 'reviewer', bad_model)
+            self.assertEqual(ctx.exception.code, 2)
+            if bad_model is not None:
+                self.assertIn(str(bad_model), str(ctx.exception))
+
+        # Valid model passes
+        rc.check_agy_args([], 'reviewer', 'gemini-3.8-flash-high')
+
+    def test_unknown_role(self):
+        with self.assertRaises(rc.RgsError) as ctx:
+            rc.check_agy_args([], 'admin', 'gemini-3.8-flash-high')
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn('admin', str(ctx.exception))
 
 
 class CallAgyTest(unittest.TestCase):
@@ -16,13 +111,13 @@ class CallAgyTest(unittest.TestCase):
         write(self.schema, json.dumps({'type': 'object', 'properties': {'verdict': {}, 'findings': {}}}))
 
     def tearDown(self):
-        for key in ('RGS_AGY', 'FAKE_AGY_DIR', 'FAKE_AGY_SCENARIO', 'FAKE_AGY_QUOTA_MODEL'):
+        for key in ('RGS_AGY', 'FAKE_AGY_DIR', 'FAKE_AGY_SCENARIO', 'FAKE_AGY_QUOTA_MODEL', 'FAKE_AGY_LABEL'):
             os.environ.pop(key, None)
         self.tmp.cleanup()
 
     def call(self, scenario, **kw):
         os.environ['FAKE_AGY_SCENARIO'] = scenario
-        kw.setdefault('model', 'm1')
+        kw.setdefault('model', 'gemini-test-1')
         return rc.call_agy(prompt='hi', cwd=self.tmp.path, timeout_s=30, **kw)
 
     def test_text_success(self):
@@ -53,17 +148,129 @@ class CallAgyTest(unittest.TestCase):
 
     def test_fallback_to_next_model_on_quota(self):
         os.environ['FAKE_AGY_SCENARIO'] = 'quota_model'
-        os.environ['FAKE_AGY_QUOTA_MODEL'] = 'm1'
-        result = rc.call_with_fallback(['m1', 'm2'], prompt='hi', cwd=self.tmp.path, timeout_s=30)
+        os.environ['FAKE_AGY_QUOTA_MODEL'] = 'gemini-test-1'
+        result = rc.call_with_fallback(['gemini-test-1', 'gemini-test-2'], prompt='hi', cwd=self.tmp.path, timeout_s=30)
         self.assertTrue(result.ok)
-        self.assertEqual(result.model, 'm2')
-        self.assertEqual(result.tried, [('m1', 'quota'), ('m2', 'ok')])
+        self.assertEqual(result.model, 'gemini-test-2')
+        self.assertEqual(result.tried, [('gemini-test-1', 'quota'), ('gemini-test-2', 'ok')])
 
     def test_saves_raw_output(self):
         prefix = os.path.join(self.tmp.path, 'out', 'run')
         self.call('ok', save_as=prefix)
-        for ext in ('.json', '.err', '.prompt.md'):
+        for ext in ('.json', '.err', '.prompt.md', '.log'):
             self.assertTrue(os.path.exists(prefix + ext), ext)
+
+    def test_invalid_model_raises_and_does_not_call_agy(self):
+        with self.assertRaises(rc.RgsError) as ctx:
+            rc.call_agy(prompt='hi', cwd=self.tmp.path, model='claude-opus-5-5')
+        self.assertEqual(ctx.exception.code, 2)
+        calls_dir = os.path.join(self.tmp.path, 'state', 'calls')
+        self.assertTrue(not os.path.exists(calls_dir) or len(os.listdir(calls_dir)) == 0)
+
+    def test_role_and_mode_permissions(self):
+        with self.assertRaises(rc.RgsError) as ctx:
+            self.call('ok', role='reviewer', mode='accept-edits')
+        self.assertEqual(ctx.exception.code, 2)
+
+        result = self.call('ok', role='implementer', mode='accept-edits')
+        self.assertTrue(result.ok)
+
+    def test_log_file_arg_passed(self):
+        self.call('ok')
+        calls_list = calls(os.path.join(self.tmp.path, 'state'))
+        self.assertTrue(len(calls_list) > 0)
+        self.assertIn('--log-file', calls_list[0]['argv'])
+
+    def test_reported_model_scenarios(self):
+        # Default Fake <model>
+        res1 = self.call('ok')
+        self.assertEqual(res1.reported_model, 'Fake gemini-test-1')
+        self.assertEqual(res1.summary()['reported_model'], 'Fake gemini-test-1')
+
+        # FAKE_AGY_LABEL specified
+        os.environ['FAKE_AGY_LABEL'] = 'Gemini 4 Argon (High)'
+        res2 = self.call('ok')
+        self.assertEqual(res2.reported_model, 'Gemini 4 Argon (High)')
+        self.assertEqual(res2.summary()['reported_model'], 'Gemini 4 Argon (High)')
+
+        # FAKE_AGY_LABEL empty string
+        os.environ['FAKE_AGY_LABEL'] = ''
+        res3 = self.call('ok')
+        self.assertIsNone(res3.reported_model)
+        self.assertIsNone(res3.summary()['reported_model'])
+
+    def test_log_file_retention_and_cleanup(self):
+        state_dir = os.path.join(self.tmp.path, 'state')
+        prefix = os.path.join(self.tmp.path, 'saved_run')
+        self.call('ok', save_as=prefix)
+        dest_log = prefix + '.log'
+        self.assertTrue(os.path.exists(dest_log))
+        with open(dest_log, encoding='utf-8') as f:
+            self.assertIn('label="Fake gemini-test-1"', f.read())
+
+        call1 = calls(state_dir)[-1]
+        temp_log1 = call1['argv'][call1['argv'].index('--log-file') + 1]
+        norm_temp1 = os.path.normcase(os.path.abspath(temp_log1))
+        norm_dest = os.path.normcase(os.path.abspath(dest_log))
+        norm_tmp = os.path.normcase(os.path.abspath(self.tmp.path))
+
+        self.assertNotEqual(norm_temp1, norm_dest)
+        self.assertFalse(norm_temp1.startswith(norm_tmp + os.sep) or norm_temp1 == norm_tmp)
+        self.assertFalse(os.path.exists(temp_log1))
+
+        self.call('ok')
+        call2 = calls(state_dir)[-1]
+        temp_log2 = call2['argv'][call2['argv'].index('--log-file') + 1]
+        self.assertFalse(os.path.exists(temp_log2))
+
+
+class KillTreeTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TempDir()
+        self.state = os.path.join(self.tmp.path, 'state')
+        os.makedirs(self.state, exist_ok=True)
+        os.environ['RGS_AGY'] = FAKE_AGY
+        os.environ['FAKE_AGY_DIR'] = self.state
+        os.environ['FAKE_AGY_SCENARIO'] = 'sleep_child'
+        self.pids = {}
+
+    def tearDown(self):
+        for key in ('RGS_AGY', 'FAKE_AGY_DIR', 'FAKE_AGY_SCENARIO', 'FAKE_AGY_LABEL'):
+            os.environ.pop(key, None)
+        for p in (self.pids.get('child'), self.pids.get('parent')):
+            if p and pid_exists(p):
+                kill_pid(p)
+        self.tmp.cleanup()
+
+    def test_kill_tree_terminates_parent_and_child(self):
+        started = time.time()
+        result = rc.call_agy(prompt='hi', cwd=self.tmp.path, model='gemini-test-1',
+                             timeout_s=1, grace_s=2)
+        elapsed = time.time() - started
+        self.assertEqual(result.kind, 'timeout')
+        self.assertLess(elapsed, 30)
+
+        pids_file = os.path.join(self.state, 'pids.json')
+        self.assertTrue(os.path.exists(pids_file))
+        with open(pids_file, encoding='utf-8') as f:
+            self.pids = json.load(f)
+        parent_pid = self.pids['parent']
+        child_pid = self.pids['child']
+
+        deadline = time.time() + 10
+        parent_dead = False
+        child_dead = False
+        while time.time() < deadline:
+            if not parent_dead and not pid_exists(parent_pid):
+                parent_dead = True
+            if not child_dead and not pid_exists(child_pid):
+                child_dead = True
+            if parent_dead and child_dead:
+                break
+            time.sleep(0.5)
+
+        self.assertTrue(parent_dead, f"parent process {parent_pid} still running")
+        self.assertTrue(child_dead, f"child process {child_pid} still running")
 
 
 class HelpersTest(unittest.TestCase):

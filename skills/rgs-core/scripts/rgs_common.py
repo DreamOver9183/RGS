@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 CORE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -400,6 +401,100 @@ def guard_log_size(workspace):
 
 # ---------------------------------------------------------------- agy
 
+FORBIDDEN_ALWAYS = ('--dangerously-skip-permissions', '--yolo', '-i', '--prompt-interactive',
+                    '--remote-control', '--sandbox')
+FORBIDDEN_FOR_REVIEWER = ('--mode', '--add-dir', '--conversation', '-c', '--continue')
+IMPLEMENTER_MODES = ('accept-edits',)
+VALUE_FLAGS = ('-p', '--model', '--output-format', '--print-timeout', '--mode', '--json-schema',
+               '--conversation', '--add-dir', '--log-file')
+
+
+def check_agy_args(args, role, model):
+    """Raise RgsError(code=2) when these agy arguments are not allowed for the role (design D-14).
+
+    args is the argument list after the agy executable. The value after a flag in VALUE_FLAGS is
+    not a flag: the prompt may well contain text such as "--yolo".
+    """
+    if role not in ('implementer', 'reviewer'):
+        raise RgsError(f"unknown role: {role!r}", code=2)
+    if not isinstance(model, str) or not model.startswith('gemini-'):
+        raise RgsError(
+            f"invalid model {model!r}: rgs 只用 Gemini 模型；agy 的預設模型可能是 Claude，所以必須明確指定 gemini-…",
+            code=2,
+        )
+
+    i = 0
+    n = len(args)
+    while i < n:
+        item = args[i]
+        if '=' in item:
+            flag, _, val = item.partition('=')
+            has_eq = True
+        else:
+            flag = item
+            val = args[i + 1] if i + 1 < n else None
+            has_eq = False
+
+        if flag in FORBIDDEN_ALWAYS:
+            raise RgsError(f"flag '{flag}' is forbidden for role '{role}'", code=2)
+
+        if role == 'reviewer' and flag in FORBIDDEN_FOR_REVIEWER:
+            raise RgsError(f"flag '{flag}' is forbidden for role '{role}'", code=2)
+
+        if role == 'implementer' and flag == '--mode':
+            if val not in IMPLEMENTER_MODES:
+                raise RgsError(f"mode '{val}' is not allowed for role '{role}' (--mode)", code=2)
+
+        if flag in VALUE_FLAGS:
+            if has_eq:
+                i += 1
+            else:
+                i += 2
+        else:
+            i += 1
+
+
+def popen_kwargs():
+    """Start a process in its own group so kill_tree() can stop everything it starts."""
+    if os.name == 'nt':
+        return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {'start_new_session': True}
+
+
+def kill_tree(proc):
+    """Stop proc and every process it started (design D-15)."""
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                       capture_output=True, stdin=subprocess.DEVNULL)
+    else:
+        import signal
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=10)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def reported_model_from_log(path):
+    """Return the last model label recorded by agy in path, or None."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            content = f.read()
+    except OSError:
+        return None
+    matches = re.findall(r'label="([^"]*)"', content)
+    return matches[-1] if matches else None
+
+
 def find_agy():
     """argv prefix for agy. RGS_AGY overrides it (a .py file runs with this Python; used by tests)."""
     override = os.environ.get('RGS_AGY')
@@ -415,13 +510,15 @@ def find_agy():
 
 
 class AgyResult:
-    def __init__(self, kind, model, data=None, stderr='', returncode=None, detail=''):
+    def __init__(self, kind, model, data=None, stderr='', returncode=None, detail='',
+                 reported_model=None):
         self.kind = kind            # ok | empty | error | quota | timeout
         self.model = model
         self.data = data or {}
         self.stderr = stderr
         self.returncode = returncode
         self.detail = detail
+        self.reported_model = reported_model
 
     @property
     def ok(self):
@@ -444,12 +541,13 @@ class AgyResult:
         return self.data.get('usage') or {}
 
     def summary(self):
-        return {'kind': self.kind, 'model': self.model, 'conversation_id': self.conversation_id,
+        return {'kind': self.kind, 'model': self.model, 'reported_model': self.reported_model,
+                'conversation_id': self.conversation_id,
                 'status': self.data.get('status'), 'duration_s': self.data.get('duration_seconds'),
                 'usage': self.usage, 'detail': self.detail}
 
 
-def classify(returncode, stdout, stderr, model, want_structured):
+def classify(returncode, stdout, stderr, model, want_structured, reported_model=None):
     try:
         data = json.loads(stdout) if stdout.strip() else None
     except ValueError:
@@ -466,22 +564,30 @@ def classify(returncode, stdout, stderr, model, want_structured):
     if returncode != 0 or data is None or data.get('status') != 'SUCCESS':
         kind = 'quota' if QUOTA_MARKERS.search(error_text) else 'error'
         return AgyResult(kind, model, data, stderr, returncode,
-                         detail=(error_text.strip() or stdout.strip())[:600])
+                         detail=(error_text.strip() or stdout.strip())[:600],
+                         reported_model=reported_model)
     if 'print timeout' in stderr:
-        return AgyResult('timeout', model, data, stderr, returncode, detail=stderr.strip()[:300])
+        return AgyResult('timeout', model, data, stderr, returncode, detail=stderr.strip()[:300],
+                         reported_model=reported_model)
     if want_structured:
         if not data.get('structured_output'):
             return AgyResult('empty', model, data, stderr, returncode,
-                             detail='no structured_output (the model may have stopped before answering)')
+                             detail='no structured_output (the model may have stopped before answering)',
+                             reported_model=reported_model)
     elif not (data.get('response') or '').strip():
-        return AgyResult('empty', model, data, stderr, returncode, detail='empty response')
-    return AgyResult('ok', model, data, stderr, returncode)
+        return AgyResult('empty', model, data, stderr, returncode, detail='empty response',
+                         reported_model=reported_model)
+    return AgyResult('ok', model, data, stderr, returncode, reported_model=reported_model)
 
 
 def call_agy(prompt, cwd, model, mode=None, schema_path=None, conversation=None, add_dirs=(),
-             timeout_s=900, save_as=None):
-    """Run one agy print-mode turn. save_as: path prefix for .json/.err/.prompt.md copies."""
-    cmd = [*find_agy(), '-p', prompt, '--model', model, '--output-format', 'json',
+             timeout_s=900, save_as=None, role='reviewer', grace_s=180):
+    """Run one agy print-mode turn. save_as: path prefix for .json/.err/.prompt.md/.log copies.
+    Log is written to a system temp file and copied to save_as + '.log' after agy exits, so agy's
+    arguments never include paths under the main checkout.
+    """
+    prefix = find_agy()
+    cmd = [*prefix, '-p', prompt, '--model', model, '--output-format', 'json',
            '--disable-slash-commands', '--print-timeout', f'{int(timeout_s)}s']
     if mode:
         cmd += ['--mode', mode]
@@ -491,24 +597,55 @@ def call_agy(prompt, cwd, model, mode=None, schema_path=None, conversation=None,
         cmd += ['--conversation', conversation]
     for d in add_dirs:
         cmd += ['--add-dir', d]
-    if save_as:
-        write_text(save_as + '.prompt.md', prompt)
-    env = dict(os.environ, MSYS_NO_PATHCONV='1')
-    started = time.time()
+
+    fd, log_path = tempfile.mkstemp(prefix='rgs_agy_', suffix='.log')
+    os.close(fd)
+
     try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL, env=env,
-                              timeout=timeout_s + 180)
-        stdout = proc.stdout.decode('utf-8', 'replace')
-        stderr = proc.stderr.decode('utf-8', 'replace')
-        result = classify(proc.returncode, stdout, stderr, model, bool(schema_path))
-    except subprocess.TimeoutExpired as e:
-        stdout = (e.stdout or b'').decode('utf-8', 'replace')
-        stderr = (e.stderr or b'').decode('utf-8', 'replace')
-        result = AgyResult('timeout', model, None, stderr, None, detail=f'killed after {int(time.time() - started)}s')
-    if save_as:
-        write_text(save_as + '.json', stdout)
-        write_text(save_as + '.err', stderr)
-    return result
+        cmd += ['--log-file', log_path]
+        check_agy_args(cmd[len(prefix):], role, model)
+
+        if save_as:
+            write_text(save_as + '.prompt.md', prompt)
+        env = dict(os.environ, MSYS_NO_PATHCONV='1')
+        started = time.time()
+        proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                stdin=subprocess.DEVNULL, env=env, **popen_kwargs())
+        try:
+            out, err = proc.communicate(timeout=timeout_s + grace_s)
+        except subprocess.TimeoutExpired:
+            kill_tree(proc)
+            try:
+                out, err = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                # A grandchild may still hold the pipes open; give up on the output.
+                proc.kill()
+                out, err = b'', b''
+            stdout = (out or b'').decode('utf-8', 'replace')
+            stderr = (err or b'').decode('utf-8', 'replace')
+            reported = reported_model_from_log(log_path)
+            result = AgyResult('timeout', model, None, stderr, None,
+                               detail=f'killed after {int(time.time() - started)}s',
+                               reported_model=reported)
+        else:
+            stdout = out.decode('utf-8', 'replace')
+            stderr = err.decode('utf-8', 'replace')
+            reported = reported_model_from_log(log_path)
+            result = classify(proc.returncode, stdout, stderr, model, bool(schema_path),
+                              reported_model=reported)
+
+        if save_as:
+            write_text(save_as + '.json', stdout)
+            write_text(save_as + '.err', stderr)
+            if os.path.exists(log_path):
+                shutil.copyfile(log_path, save_as + '.log')
+        return result
+    finally:
+        if log_path and os.path.exists(log_path):
+            try:
+                os.remove(log_path)
+            except OSError:
+                pass
 
 
 def call_with_fallback(models, **kwargs):
