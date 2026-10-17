@@ -13,7 +13,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $source = Join-Path $PSScriptRoot 'skills'
-$names = @('rgs-core', 'rgs-main', 'rgs-pr')
+$names = @('rgs-core', 'rgs-main', 'rgs-pr', 'rgs-facet')
 
 function Get-LinkTarget([string]$path) {
     $item = Get-Item -LiteralPath $path -Force
@@ -53,12 +53,16 @@ foreach ($name in $names) {
 }
 
 if (-not $Uninstall) {
+    $legacy = Join-Path $env:USERPROFILE '.claude\commands\rgs-facet.md'
+    if (Test-Path -LiteralPath $legacy) {
+        Write-Warning "$legacy exists and conflicts with /rgs-facet; please resolve manually (do not delete or edit automatically)"
+    }
     $python = Get-Command python -ErrorAction SilentlyContinue
     if (-not $python) { Write-Warning 'python was not found on PATH; the rgs scripts need Python 3.10+' }
     $agy = Join-Path $env:LOCALAPPDATA 'agy\bin\agy.exe'
     if (-not (Test-Path -LiteralPath $agy) -and -not (Get-Command agy -ErrorAction SilentlyContinue)) {
-        Write-Warning 'agy (Antigravity CLI) was not found; install it before using /rgs-main or /rgs-pr'
+        Write-Warning 'agy (Antigravity CLI) was not found; install it before using /rgs-main, /rgs-pr, or /rgs-facet'
     }
     Write-Host ''
-    Write-Host 'Restart Claude Code (or open a new session) to load /rgs-main and /rgs-pr.'
+    Write-Host 'Restart Claude Code (or open a new session) to load /rgs-main, /rgs-pr, and /rgs-facet.'
 }
