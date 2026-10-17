@@ -15,11 +15,35 @@ CALL_EXEC_ENV_PATTERN = re.compile(
 )
 
 
+def _is_agy_word(word):
+    """Return True if word's final path component is agy or agy.exe."""
+    if not isinstance(word, str):
+        return False
+    clean = word.rstrip(');}')
+    clean = clean.strip('\'"')
+    clean = clean.replace('\\', '/')
+    token = clean.split('/')[-1].lower()
+    return token in ('agy', 'agy.exe')
+
+
 def _quoted_word(inner):
-    """Return the executable candidate from inside a quoted string."""
-    first = inner.split(None, 1)[0] if inner.split() else ''
-    if any(c in first for c in ('/', '\\', ':')):
-        return inner
+    """Return the executable candidate inside a quoted string.
+
+    The first word decides, except when it looks like the start of a path: then the quoted text
+    may be a path with spaces ("C:\\Program Files\\agy\\agy.exe -p x"), so prefixes of 2, 3, ...
+    words are tried as well. A quoted command whose first word is a path to another program and
+    whose later argument ends in /agy would be blocked; that is accepted for this second-line guard.
+    """
+    words = inner.split()
+    if not words:
+        return ''
+    first = words[0]
+    if _is_agy_word(first) or not any(c in first for c in ('/', '\\', ':')):
+        return first
+    for n in range(2, len(words) + 1):
+        candidate = ' '.join(words[:n])
+        if _is_agy_word(candidate):
+            return candidate
     return first
 
 
@@ -72,12 +96,7 @@ def is_direct_agy(command):
         else:
             word = seg.split(None, 1)[0]
 
-        word = word.rstrip(');}')
-        word = word.strip('\'"')
-
-        word = word.replace('\\', '/')
-        token = word.split('/')[-1].lower()
-        if token in ('agy', 'agy.exe'):
+        if _is_agy_word(word):
             return True
 
     return False

@@ -52,6 +52,11 @@ class TestIsDirectAgy(unittest.TestCase):
             '"C:\\Program Files\\agy\\agy.exe" -p x',
             '"/opt/my tools/agy" -p x',
             "'C:\\Program Files\\agy\\agy.exe' --version",
+            # fix-2: eval 內帶路徑與含空白路徑的 agy 呼叫
+            'eval "/usr/bin/agy -p x"',
+            'eval "C:\\tools\\agy.exe -p x"',
+            'eval "C:\\Program Files\\agy\\agy.exe -p x"',
+            "eval '/usr/bin/agy --version'",
         ]
         for cmd in cases:
             with self.subTest(cmd=cmd):
@@ -85,6 +90,9 @@ class TestIsDirectAgy(unittest.TestCase):
             'eval "cat /path/to/agy"',
             "eval 'echo foo/agy'",
             '"echo foo/agy"',
+            # fix-2: eval 內帶路徑的其他合法程式
+            'eval "/usr/bin/python -I x.py"',
+            'eval "C:\\Program Files\\Git\\bin\\git.exe log"',
         ]
         for cmd in cases:
             with self.subTest(cmd=cmd):
