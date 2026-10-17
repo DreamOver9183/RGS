@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "properties": {
+    "verdict": {"type": "string", "enum": ["APPROVED", "REVISE", "BLOCKED"]},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+          "evidence": {"type": "string"},
+          "issue": {"type": "string"},
+          "suggestion": {"type": "string"}
+        },
+        "required": ["id", "severity", "evidence", "issue", "suggestion"]
+      }
+    },
+    "coverage": {"type": "string"},
+    "limitations": {"type": "string"},
+    "resolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "status": {"type": "string", "enum": ["resolved", "unresolved"]},
+          "note": {"type": "string"}
+        },
+        "required": ["id", "status", "note"]
+      }
+    }
+  },
+  "required": ["verdict", "findings", "coverage", "limitations"]
+}
