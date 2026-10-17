@@ -15,6 +15,14 @@ CALL_EXEC_ENV_PATTERN = re.compile(
 )
 
 
+def _quoted_word(inner):
+    """Return the executable candidate from inside a quoted string."""
+    first = inner.split(None, 1)[0] if inner.split() else ''
+    if any(c in first for c in ('/', '\\', ':')):
+        return inner
+    return first
+
+
 def is_direct_agy(command):
     """True when a shell segment of command starts with the agy executable (design D-18)."""
     if not isinstance(command, str):
@@ -57,18 +65,10 @@ def is_direct_agy(command):
         # Extract first word
         if seg.startswith('"'):
             m = re.match(r'^"([^"]*)"', seg)
-            inner = m.group(1) if m else seg[1:]
-            word = inner.split(None, 1)[0] if inner.split() else ''
-            inner_token = inner.replace('\\', '/').split('/')[-1].lower()
-            if inner_token in ('agy', 'agy.exe'):
-                word = inner
+            word = _quoted_word(m.group(1) if m else seg[1:])
         elif seg.startswith("'"):
             m = re.match(r"^'([^']*)'", seg)
-            inner = m.group(1) if m else seg[1:]
-            word = inner.split(None, 1)[0] if inner.split() else ''
-            inner_token = inner.replace('\\', '/').split('/')[-1].lower()
-            if inner_token in ('agy', 'agy.exe'):
-                word = inner
+            word = _quoted_word(m.group(1) if m else seg[1:])
         else:
             word = seg.split(None, 1)[0]
 

@@ -48,6 +48,10 @@ class TestIsDirectAgy(unittest.TestCase):
             'time agy --version',
             'nohup agy -p x',
             'sudo agy --version',
+            # 含空白的引號路徑（雙引號與單引號）
+            '"C:\\Program Files\\agy\\agy.exe" -p x',
+            '"/opt/my tools/agy" -p x',
+            "'C:\\Program Files\\agy\\agy.exe' --version",
         ]
         for cmd in cases:
             with self.subTest(cmd=cmd):
@@ -75,6 +79,12 @@ class TestIsDirectAgy(unittest.TestCase):
             'command -v python',
             'eval echo hi',
             'time python -I x.py',
+            # 引號內合法指令（避免將引號內路徑片段誤判為 agy）
+            'eval "echo foo/agy"',
+            'eval "git checkout feat/agy"',
+            'eval "cat /path/to/agy"',
+            "eval 'echo foo/agy'",
+            '"echo foo/agy"',
         ]
         for cmd in cases:
             with self.subTest(cmd=cmd):
