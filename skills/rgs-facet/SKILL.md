@@ -8,7 +8,7 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: python -I "${CLAUDE_SKILL_DIR}/scripts/guard_agy.py" || true
+          command: python -I "$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py" || true
 ---
 
 # /rgs-facet：跨模型計畫審查
@@ -136,6 +136,6 @@ EOF
 
 ## 備註
 
-- `allowed-tools` 只在呼叫 skill 的那一回合有效；審查迴圈跨回合後可能每次都要確認，使用者可在 `.claude/settings.json` 的 `permissions.allow` 加入權限規則避免重複確認。
+- `allowed-tools` 只在呼叫 skill 的那一回合有效；審查迴圈跨回合後可能每次都要確認，使用者可在 `.claude/settings.json` 的 `permissions.allow` 加入權限規則避免重複確認。審查迴圈通常在同一回合內完成，實測不會跳出確認。
 - hook 在 skill 被呼叫後整個 session 有效。結尾的 `|| true` 是刻意的：Python 找不到腳本時以 exit 2 結束，而 PreToolUse hook 的 exit 2 會擋下所有 Bash 指令；guard 拒絕時用 JSON 輸出加 exit 0，不受 `|| true` 影響。
-- hook 指令中的 `${CLAUDE_SKILL_DIR}` 是否會被代入，官方文件沒有寫明，本機驗收時實測；沒有代入時 guard 不會生效，但也不會擋到其他指令。
+- hook 指令中的 `${CLAUDE_SKILL_DIR}` 不會被代入，所以 hook 用 `$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py`；guard 只在 rgs-facet 安裝於個人層（`install.ps1` 的預設位置）時生效，裝在其他位置時 guard 不會生效，但也不會擋到其他指令。

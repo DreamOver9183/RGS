@@ -126,6 +126,24 @@ class TestSkillMdStructure(unittest.TestCase):
             self.fm_text,
             "Check failed: frontmatter hook command must contain '|| true'",
         )
+        self.assertIn(
+            '$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py',
+            self.fm_text,
+            "Check failed: frontmatter must contain '$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py'",
+        )
+        command_lines = [
+            line for line in self.fm_text.splitlines() if line.strip().startswith('command:')
+        ]
+        self.assertTrue(
+            command_lines,
+            "Check failed: frontmatter must contain at least one 'command:' line",
+        )
+        for cmd_line in command_lines:
+            self.assertNotIn(
+                '${CLAUDE_SKILL_DIR}',
+                cmd_line,
+                "Check failed: frontmatter hook command line must not contain '${CLAUDE_SKILL_DIR}'",
+            )
 
     def test_line_count(self):
         """SKILL.md 總行數不得超過 500 行。"""

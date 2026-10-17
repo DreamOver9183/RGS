@@ -10,7 +10,41 @@ if HERE not in sys.path:
 
 SPLIT_PATTERN = re.compile(r'&&|\|\||[;\n`|]|\$\(|(?<!&)&(?!&)')
 ENV_VAR_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|\'[^\']*\'|\S+)(?:\s+|$)')
-CALL_EXEC_ENV_PATTERN = re.compile(r'^(?:call|exec|env)(?:\s+|$)', re.IGNORECASE)
+CALL_EXEC_ENV_PATTERN = re.compile(
+    r'^(?:call|exec|env|command|eval|time|nohup|sudo)(?:\s+|$)', re.IGNORECASE
+)
+
+
+def _is_agy_word(word):
+    """Return True if word's final path component is agy or agy.exe."""
+    if not isinstance(word, str):
+        return False
+    clean = word.rstrip(');}')
+    clean = clean.strip('\'"')
+    clean = clean.replace('\\', '/')
+    token = clean.split('/')[-1].lower()
+    return token in ('agy', 'agy.exe')
+
+
+def _quoted_word(inner):
+    """Return the executable candidate inside a quoted string.
+
+    The first word decides, except when it looks like the start of a path: then the quoted text
+    may be a path with spaces ("C:\\Program Files\\agy\\agy.exe -p x"), so prefixes of 2, 3, ...
+    words are tried as well. A quoted command whose first word is a path to another program and
+    whose later argument ends in /agy would be blocked; that is accepted for this second-line guard.
+    """
+    words = inner.split()
+    if not words:
+        return ''
+    first = words[0]
+    if _is_agy_word(first) or not any(c in first for c in ('/', '\\', ':')):
+        return first
+    for n in range(2, len(words) + 1):
+        candidate = ' '.join(words[:n])
+        if _is_agy_word(candidate):
+            return candidate
+    return first
 
 
 def is_direct_agy(command):
@@ -37,7 +71,11 @@ def is_direct_agy(command):
             if seg.startswith('&'):
                 seg = seg[1:]
                 continue
-            # Strip leading call, exec, env
+            # Strip leading subshell or group braces: ( or {
+            if seg.startswith('(') or seg.startswith('{'):
+                seg = seg[1:]
+                continue
+            # Strip leading call, exec, env, command, eval, time, nohup, sudo
             m = CALL_EXEC_ENV_PATTERN.match(seg)
             if m:
                 seg = seg[m.end():]
@@ -51,18 +89,14 @@ def is_direct_agy(command):
         # Extract first word
         if seg.startswith('"'):
             m = re.match(r'^"([^"]*)"', seg)
-            word = m.group(1) if m else seg[1:]
+            word = _quoted_word(m.group(1) if m else seg[1:])
         elif seg.startswith("'"):
             m = re.match(r"^'([^']*)'", seg)
-            word = m.group(1) if m else seg[1:]
+            word = _quoted_word(m.group(1) if m else seg[1:])
         else:
             word = seg.split(None, 1)[0]
-            word = word.rstrip(')')
-            word = word.strip('\'"')
 
-        word = word.replace('\\', '/')
-        token = word.split('/')[-1].lower()
-        if token in ('agy', 'agy.exe'):
+        if _is_agy_word(word):
             return True
 
     return False
