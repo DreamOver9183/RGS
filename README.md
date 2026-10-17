@@ -67,25 +67,25 @@
 1. 取得這個 repo：
 
    ```bash
-   git clone https://github.com/DreamOver9183/RGS_skills.git
+   git clone https://github.com/DreamOver9183/RGS.git
    ```
 
 2. 執行安裝腳本：
 
    ```bash
-   powershell -ExecutionPolicy Bypass -File RGS_skills/install.ps1
+   powershell -ExecutionPolicy Bypass -File RGS/install.ps1
    ```
 
    它會在 `~/.claude/skills/` 下建立 `rgs-core`、`rgs-main`、`rgs-pr` 三個 junction，指向這個 repo，所以之後 `git pull` 更新 repo，skill 也會跟著更新。三個資料夾都要安裝：`rgs-main` 與 `rgs-pr` 會用到同層的 `rgs-core`。
 
 3. **開一個新的 Claude Code session。** skill 只在 session 開始時載入。輸入 `/` 應該能看到 `/rgs-main` 與 `/rgs-pr`。
 
-移除：`powershell -ExecutionPolicy Bypass -File RGS_skills/install.ps1 -Uninstall`。這只會刪除 junction，不會刪除 repo。
+移除：`powershell -ExecutionPolicy Bypass -File RGS/install.ps1 -Uninstall`。這只會刪除 junction，不會刪除 repo。
 
 macOS／Linux 沒有安裝腳本，可以手動建立符號連結（尚未在這些平台驗證）：
 
 ```bash
-ln -s "$PWD/RGS_skills/skills/rgs-core" "$PWD/RGS_skills/skills/rgs-main" "$PWD/RGS_skills/skills/rgs-pr" ~/.claude/skills/
+ln -s "$PWD/RGS/skills/rgs-core" "$PWD/RGS/skills/rgs-main" "$PWD/RGS/skills/rgs-pr" ~/.claude/skills/
 ```
 
 ## 第一次在專案中使用
@@ -105,7 +105,7 @@ ln -s "$PWD/RGS_skills/skills/rgs-core" "$PWD/RGS_skills/skills/rgs-main" "$PWD/
 4. **權限規則**：Claude 會列出建議的規則，例如：
 
    ```
-   Bash(python -I "D:/Claude Code/RGS_skills/skills/rgs-core/scripts/rgs.py":*)
+   Bash(python -I "D:/My Tools/RGS/skills/rgs-core/scripts/rgs.py":*)
    ```
 
    把它們加進專案 `.claude/settings.json` 的 `permissions.allow`，之後就不會每一步都跳出權限確認。Claude 不能修改自己的設定，所以這一步要由你來做。

@@ -67,25 +67,25 @@ On Windows, the build and test commands in the profile run in Git Bash by defaul
 1. Get this repository:
 
    ```bash
-   git clone https://github.com/DreamOver9183/RGS_skills.git
+   git clone https://github.com/DreamOver9183/RGS.git
    ```
 
 2. Run the installer:
 
    ```bash
-   powershell -ExecutionPolicy Bypass -File RGS_skills/install.ps1
+   powershell -ExecutionPolicy Bypass -File RGS/install.ps1
    ```
 
    It creates three junctions under `~/.claude/skills/`: `rgs-core`, `rgs-main` and `rgs-pr`, all pointing into this repository. A later `git pull` therefore updates the skills too. Install all three, because `rgs-main` and `rgs-pr` use their sibling `rgs-core`.
 
 3. **Start a new Claude Code session.** Skills are loaded only when a session starts. Typing `/` should now list `/rgs-main` and `/rgs-pr`.
 
-To uninstall, run `powershell -ExecutionPolicy Bypass -File RGS_skills/install.ps1 -Uninstall`. It removes only the junctions, never the repository.
+To uninstall, run `powershell -ExecutionPolicy Bypass -File RGS/install.ps1 -Uninstall`. It removes only the junctions, never the repository.
 
 macOS / Linux have no installer yet. You can create symlinks by hand; this is not yet verified on those platforms:
 
 ```bash
-ln -s "$PWD/RGS_skills/skills/rgs-core" "$PWD/RGS_skills/skills/rgs-main" "$PWD/RGS_skills/skills/rgs-pr" ~/.claude/skills/
+ln -s "$PWD/RGS/skills/rgs-core" "$PWD/RGS/skills/rgs-main" "$PWD/RGS/skills/rgs-pr" ~/.claude/skills/
 ```
 
 ## First use in a project
@@ -105,7 +105,7 @@ What happens:
 4. **Permission rules**: Claude lists suggested rules such as:
 
    ```
-   Bash(python -I "D:/Claude Code/RGS_skills/skills/rgs-core/scripts/rgs.py":*)
+   Bash(python -I "D:/My Tools/RGS/skills/rgs-core/scripts/rgs.py":*)
    ```
 
    Add them to `permissions.allow` in the project's `.claude/settings.json` so you are not prompted at every step. Claude cannot change its own settings, so this step is yours.
