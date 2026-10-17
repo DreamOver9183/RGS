@@ -19,7 +19,7 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | M3 | 已合併 | `feat/m3-sealed-snapshot-doctor`／#3（M2 合併後已 retarget 到 main） | rgs-core 122 | 封閉唯讀、快照、doctor；Claude 審查 1 輪修正（`SnapshotTest.setUp` 少建資料夾）；真 agy sealed 實測通過；合併閘門第 1 輪 PASS、2 個次要意見都採納（fix-2），第 2 輪 PASS |
 | M4 | 已合併 | `feat/m4-facet-review`／#4（M3 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 86 | `facet_review.py`；Claude 審查 0 輪修正；真 agy（Gemini 4 Argon）實測通過；合併閘門第 1 輪 2 個次要意見都採納（`--session` 的 `.`、`..`；多餘 import），第 2 輪 PASS |
 | M5 | 已合併 | `feat/m5-facet-skill`／#5（M4 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 105 | rgs-facet skill 本體、安裝；Claude 審查 1 輪修正（指令寫死模型、doctor 路徑）；`install.ps1` 實跑通過；合併閘門 PASS，1 個次要意見延後到 M7 |
-| M6 | 實作中 | `feat/m6-facet-docs`（堆疊在 M5） | | 文件與 RGS 整合 |
+| M6 | 已合併 | `feat/m6-facet-docs`／#6（M5 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 105 | 文件與 RGS 整合；Claude 審查 0 輪修正（README 權限說明措辭由 Claude 直接修正）；合併閘門 PASS，無意見 |
 
 狀態只用：未開始、實作中、審查中、待合併、已合併、延後。
 
@@ -216,8 +216,8 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | R-5、R-6 | M3 | `rgs-core/tests/test_guard.py`、`test_common.py`、`test_doctor.py` | #3 |
 | R-7 | M4 | `rgs-facet/tests/test_facet_review.py` | #4 |
 | R-8、R-9、R-10 | M5 | `rgs-facet/tests/test_skill_md.py`、`test_guard_agy.py` | #5 |
-| R-11 | M6 | auditor 稽核 | |
-| R-12 | M1–M6 | `rgs-core/tests/*`；M2、M3 的 sandbox 實測 | |
+| R-11 | M6 | auditor 稽核 | #6 |
+| R-12 | M1–M6 | `rgs-core/tests/*`；M2、M3 的 sandbox 實測 | #1–#6 |
 
 ## 教訓清單
 
@@ -246,3 +246,4 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | v1.3 | 2026-10-17 | M3 已合併（PR #3）；教訓 8–10 |
 | v1.4 | 2026-10-17 | M4 已合併（PR #4）；教訓 11 |
 | v1.5 | 2026-10-18 | M5 已合併（PR #5）；教訓 12；排入 M7 的項目 |
+| v1.6 | 2026-10-18 | M6 已合併（PR #6）；M1–M6 全部完成，進入本機驗收 |
