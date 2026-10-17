@@ -1,6 +1,6 @@
 ---
 name: rgs-main
-description: 輕量的 Claude × Gemini（Antigravity CLI，agy）協作開發流程。Claude 寫任務規格，Gemini 在隔離的 worktree 中實作；Claude 審 diff 並跑測試，通過後直接 push 到 main，不通過就寫具體修正建議請 Gemini 再改。適用小型專案、單一功能或修 bug、單人 repo。只要使用者輸入 /rgs-main，或說「讓 Gemini 寫、你審」「叫 Antigravity 做完直接推 main」「這個小功能交給 Gemini」，就使用這個 skill。另有子指令：batch（大量資料交給 Gemini 批次處理）、digest（長文件或 log 交給 Gemini 摘要並核對引用）、status（用量或額度中斷後續跑）。需要需求文件、里程碑、PR 與人工合併的中大型工作，改用 rgs-pr。
+description: 輕量的 Claude × Gemini（Antigravity CLI，agy）協作開發流程。Claude 寫任務規格，Gemini 在隔離的 worktree 中實作；Claude 審 diff 並跑測試，通過後直接 push 到 main，不通過就寫具體修正建議請 Gemini 再改。適用小型專案、單一功能或修 bug、單人 repo。只要使用者輸入 /rgs-main，或說「讓 Gemini 寫、你審」「叫 Antigravity 做完直接推 main」「這個小功能交給 Gemini」，就使用這個 skill。另有子指令：batch（大量資料交給 Gemini 批次處理）、digest（長文件或 log 交給 Gemini 摘要並核對引用）、status（用量或額度中斷後續跑）。需要需求文件、里程碑、PR 與人工合併的中大型工作，改用 rgs-pr。只想讓其他模型審查計畫、不實作時，改用 rgs-facet。
 argument-hint: <任務描述> | status | batch … | digest …
 ---
 
