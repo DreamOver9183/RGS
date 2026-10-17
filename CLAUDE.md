@@ -27,6 +27,7 @@
 
 - 每個 skill 是 `skills/` 下的一個資料夾，由 `install.ps1` 以 junction 連到 `~/.claude/skills/`。`rgs-core` 沒有 `SKILL.md`，不會變成指令，只放共用的規則、範本、腳本與測試。
 - `SKILL.md` 保持精簡：流程步驟寫在 `SKILL.md`，行為與規則放在 `rgs-core` 的腳本、範本與 references。
+- `SKILL.md` 中的指令用參數佔位符（例如 `<REVIEWER_MODEL>`），不寫死參數值；要預先核准的指令，路徑寫法必須和 frontmatter `allowed-tools` 完全一致。
 - 腳本只用相對於自身位置（`os.path.dirname(__file__)`）的路徑找範本與其他腳本，不依賴目前工作目錄或安裝位置。其他 skill 的腳本以 `<skill>/../rgs-core/scripts` 匯入 `rgs_common`。
 - 每個腳本在 stdout 印出一個 JSON 摘要，以 exit code 表示結果。新增或改變 exit code 時，同步更新 `references/scripts.md`。
 - 所有 agy 呼叫都經過 `rgs_common.call_agy`；guard（`guard.py`）預設拒絕，遇到未知工具、壞掉的輸入或例外都輸出拒絕。

@@ -18,8 +18,8 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | M2 | 已合併 | `feat/m2-call-agy-hardening`／#2 | rgs-core 96 | `call_agy` 強化；Claude 審查 1 輪修正（`--log-file` 不能指向主 checkout）；合併閘門第 1 輪 PASS、5 個次要意見採納 4 條（fix-2），第 2 輪 PASS；sandbox 真 agy 實測通過 |
 | M3 | 已合併 | `feat/m3-sealed-snapshot-doctor`／#3（M2 合併後已 retarget 到 main） | rgs-core 122 | 封閉唯讀、快照、doctor；Claude 審查 1 輪修正（`SnapshotTest.setUp` 少建資料夾）；真 agy sealed 實測通過；合併閘門第 1 輪 PASS、2 個次要意見都採納（fix-2），第 2 輪 PASS |
 | M4 | 已合併 | `feat/m4-facet-review`／#4（M3 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 86 | `facet_review.py`；Claude 審查 0 輪修正；真 agy（Gemini 4 Argon）實測通過；合併閘門第 1 輪 2 個次要意見都採納（`--session` 的 `.`、`..`；多餘 import），第 2 輪 PASS |
-| M5 | 實作中 | `feat/m5-facet-skill`（堆疊在 M4） | | rgs-facet skill 本體、安裝；`install.ps1` 在暫存資料夾實跑通過 |
-| M6 | 未開始 | | | 文件與 RGS 整合 |
+| M5 | 已合併 | `feat/m5-facet-skill`／#5（M4 合併後合併最新 main、retarget 到 main） | rgs-core 127、rgs-facet 105 | rgs-facet skill 本體、安裝；Claude 審查 1 輪修正（指令寫死模型、doctor 路徑）；`install.ps1` 實跑通過；合併閘門 PASS，1 個次要意見延後到 M7 |
+| M6 | 實作中 | `feat/m6-facet-docs`（堆疊在 M5） | | 文件與 RGS 整合 |
 
 狀態只用：未開始、實作中、審查中、待合併、已合併、延後。
 
@@ -202,6 +202,11 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 發現的問題開修正里程碑（M7 起），之後用 `/rgs-pr release` 發佈。
 
+已排入 M7 的項目：
+
+- `guard_agy.is_direct_agy` 也要攔下 `(agy …)` 子 shell 與 `command`、`eval` 前綴（PR #5 審查意見，延後）。
+- 依本機驗收結果調整 hook 指令中 `${CLAUDE_SKILL_DIR}` 的寫法（若不會被代入）。
+
 ## 追溯矩陣
 
 | 需求 | 里程碑 | 測試 | PR |
@@ -210,7 +215,7 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | R-4 | M2 | `rgs-core/tests/test_common.py` | #2 |
 | R-5、R-6 | M3 | `rgs-core/tests/test_guard.py`、`test_common.py`、`test_doctor.py` | #3 |
 | R-7 | M4 | `rgs-facet/tests/test_facet_review.py` | #4 |
-| R-8、R-9、R-10 | M5 | `rgs-facet/tests/test_skill_md.py`、`test_guard_agy.py` | |
+| R-8、R-9、R-10 | M5 | `rgs-facet/tests/test_skill_md.py`、`test_guard_agy.py` | #5 |
 | R-11 | M6 | auditor 稽核 | |
 | R-12 | M1–M6 | `rgs-core/tests/*`；M2、M3 的 sandbox 實測 | |
 
@@ -229,6 +234,7 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 9. 錯誤案例要斷言訊息內容，這條在 PR #2、#3 的合併閘門都被提出：寫 spec 時明列「每個錯誤案例斷言哪段訊息」（出處：PR #2、#3）。
 10. 多個提早結束的分支不要各自以長參數列呼叫同一個收尾函式；用一個結果 dict 或例外集中收尾（出處：M4 審查，未開修正輪）。
 11. 使用者可控的名稱拼進路徑時，字元白名單之外還要排除 `.` 與 `..`，否則會跑出預期的資料夾（出處：PR #4 fix-1）。
+12. SKILL.md 的指令要用參數佔位符（例如 `<REVIEWER_MODEL>`），不要寫死參數區塊的值；預先核准的指令路徑要和 `allowed-tools` 的寫法完全一致（出處：PR #5 fix-1）。
 
 ## 修訂歷史
 
@@ -239,3 +245,4 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | v1.2 | 2026-10-17 | M2 已合併（PR #2）；教訓 5–7 |
 | v1.3 | 2026-10-17 | M3 已合併（PR #3）；教訓 8–10 |
 | v1.4 | 2026-10-17 | M4 已合併（PR #4）；教訓 11 |
+| v1.5 | 2026-10-18 | M5 已合併（PR #5）；教訓 12；排入 M7 的項目 |
