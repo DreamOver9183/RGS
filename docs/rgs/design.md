@@ -216,7 +216,7 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | 項目 | 結果 | 備註 |
 | :-- | :-- | :-- |
 | C1 安裝 | 通過 | `install.ps1` 建立 `rgs-facet` junction；新 session 的 skills 與 slash_commands 都有 `rgs-facet` |
-| C2 Plan 模式權限與 guard（A7） | guard 未生效，已找到原因 | 使用者試跑時 `agy --version` 沒被擋。拋棄式專案層 skill 實測：skill 的 hook 會執行，但 hook 指令中的 `${CLAUDE_SKILL_DIR}` 不會被代入、也不是環境變數（hook 只有 `$CLAUDE_PROJECT_DIR`，工作目錄是專案資料夾）；改用 `python -I "$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py" \|\| true` 後成功擋下。SKILL.md 內文的 `${CLAUDE_SKILL_DIR}` 則會展開成 `C:/Users/<使用者>/.claude/skills/rgs-facet`（正斜線） |
+| C2 Plan 模式權限與 guard（A7） | 通過（M7 修正後） | 使用者試跑時 `agy --version` 沒被擋。拋棄式專案層 skill 實測：skill 的 hook 會執行，但 hook 指令中的 `${CLAUDE_SKILL_DIR}` 不會被代入、也不是環境變數（hook 只有 `$CLAUDE_PROJECT_DIR`，工作目錄是專案資料夾）；改用 `python -I "$HOME/.claude/skills/rgs-facet/scripts/guard_agy.py" \|\| true` 後成功擋下。M7 合併後，以安裝中的 rgs-facet 在新的無頭 session 觸發 `/rgs-facet` 再執行 `agy --version`，被 guard 擋下。權限：Plan 模式試跑時 doctor 與三次送審都沒跳出確認。SKILL.md 內文的 `${CLAUDE_SKILL_DIR}` 則會展開成 `C:/Users/<使用者>/.claude/skills/rgs-facet`（正斜線） |
 | C3 觸發測試 | 通過 | `claude -p` 無頭、每句一個新 session：`/rgs-facet` 觸發；自然語句 9/9；不該觸發 0/10（其中「用 Gemini 寫」「讓 Gemini 寫、你審」載入 rgs-main，「照 SOP 開 PR」載入 rgs-pr）。腳本與結果在 `.rgs/runs/acceptance/` |
 | C4 試跑 | 通過 | sandbox calc 專案、Plan 模式：三個角度第 1 輪都 APPROVED（Gemini 4 Argon (High)，各 32–53 秒），快照無變動、guard 無拒絕；原始紀錄在 `%TEMP%/rgs-facet/<session id>/`；計畫檔依 summary-format 寫入審查摘要與附錄；ExitPlanMode 只呼叫一次 |
 
