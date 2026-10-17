@@ -37,7 +37,7 @@ python -I facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiabilit
 | `--round` | 必填。從 1 起算的整數 |
 | `--model` | 必填。agy 模型 ID（`call_agy` 會檢查必須是 `gemini-` 開頭） |
 | `--timeout` | 秒，預設 300（D-10）。正整數 |
-| `--session` | 預設取環境變數 `CLAUDE_SESSION_ID`，沒有時用 `'manual'`。只允許英數、`-`、`_`、`.`，其他字元是 `usage_error`（它會成為資料夾名稱）。SKILL.md 會用 Claude Code 代入的 `${CLAUDE_SESSION_ID}` 明確傳入 |
+| `--session` | 預設取環境變數 `CLAUDE_SESSION_ID`，沒有時用 `'manual'`。只允許英數、`-`、`_`、`.`，而且不能是 `.` 或 `..`（第 1 輪審查後補上），其他情況是 `usage_error`（它會成為資料夾名稱）。SKILL.md 會用 Claude Code 代入的 `${CLAUDE_SESSION_ID}` 明確傳入 |
 | `--run-dir` | 預設 `os.path.join(tempfile.gettempdir(), 'rgs-facet', <session>)`（D-12） |
 | `--repo` | 預設目前工作目錄。用來做呼叫前後的快照比對 |
 | `--prior-stdin` | 第二輪起必須加：從 stdin 讀前輪處置 JSON（格式見 `prompt.PRIOR_SCHEMA`），以 UTF-8 解碼 `sys.stdin.buffer` |

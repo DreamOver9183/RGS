@@ -75,7 +75,7 @@ python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|g
 | `--round` | 必填。從 1 起算的整數 |
 | `--model` | 必填。agy 模型 ID（必須是 `gemini-` 開頭） |
 | `--timeout` | 秒，預設 300。正整數 |
-| `--session` | 預設取環境變數 `CLAUDE_SESSION_ID`，沒有時用 `'manual'`。只允許英數、`-`、`_`、`.` |
+| `--session` | 預設取環境變數 `CLAUDE_SESSION_ID`，沒有時用 `'manual'`。只允許英數、`-`、`_`、`.`，不能是 `.` 或 `..` |
 | `--run-dir` | 預設 `os.path.join(tempfile.gettempdir(), 'rgs-facet', <session>)` |
 | `--repo` | 預設目前工作目錄。用來做呼叫前後的快照比對 |
 | `--prior-stdin` | 第二輪起必須加：從 stdin 讀前輪處置 JSON |

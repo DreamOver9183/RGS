@@ -227,7 +227,7 @@ def main():
         session = args.session
         if session is None:
             session = os.environ.get('CLAUDE_SESSION_ID') or 'manual'
-        if not session or not re.fullmatch(r'[A-Za-z0-9_.-]+', session):
+        if not session or session in ('.', '..') or not re.fullmatch(r'[A-Za-z0-9_.-]+', session):
             raise UsageError(f'invalid session: {session!r}')
 
         repo = os.path.abspath(args.repo) if args.repo else os.getcwd()

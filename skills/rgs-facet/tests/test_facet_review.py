@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import unittest
@@ -751,6 +750,31 @@ class TestFacetReviewSessionAndRunDir(BaseFacetReviewTest):
         self.assertEqual(data['status'], 'usage_error')
         self.assertIn('invalid session', data['detail'])
         self.assertEqual(len(self.get_recorded_calls()), 0)
+
+    def test_invalid_session_dot_names(self):
+        env_override = {
+            'TEMP': self.tmp.path,
+            'TMP': self.tmp.path,
+            'TMPDIR': self.tmp.path,
+        }
+        for bad_session in ('..', '.'):
+            with self.subTest(session=bad_session):
+                args = [
+                    '--plan-file', self.plan_file,
+                    '--lens', 'logic',
+                    '--round', '1',
+                    '--model', 'gemini-3.8-flash-high',
+                    '--session', bad_session,
+                    '--repo', self.repo_dir,
+                ]
+                proc = self.run_review(args, extra_env=env_override)
+                self.assertEqual(proc.returncode, 10)
+                lines = [line for line in proc.stdout.splitlines() if line.strip()]
+                self.assertEqual(len(lines), 1)
+                data = json.loads(lines[0])
+                self.assertEqual(data['status'], 'usage_error')
+                self.assertIn('invalid session', data['detail'])
+                self.assertEqual(len(self.get_recorded_calls()), 0)
 
 
 if __name__ == '__main__':
