@@ -167,9 +167,41 @@ class TestSkillMdStructure(unittest.TestCase):
             "Check failed: SKILL.md must contain exact 'MAX_ROUNDS     = 3'",
         )
         self.assertIn(
-            'AGY_TIMEOUT    = 300',
+            'AGY_TIMEOUT    = 900',
             self.content,
-            "Check failed: SKILL.md must contain exact 'AGY_TIMEOUT    = 300'",
+            "Check failed: SKILL.md must contain exact 'AGY_TIMEOUT    = 900'",
+        )
+
+    def test_review_runs_in_background(self):
+        """送審一律在背景執行，不再設定 Bash 前景 timeout。"""
+        self.assertIn(
+            'run_in_background: true',
+            self.content,
+            "Check failed: SKILL.md must tell Claude to run facet_review.py with 'run_in_background: true'",
+        )
+        self.assertNotIn(
+            '360000',
+            self.content,
+            "Check failed: SKILL.md must not set a foreground Bash timeout (360000)",
+        )
+
+    def test_timeout_is_not_retried(self):
+        """status 表的 timeout 列不自動重試。"""
+        rows = [line for line in self.content.splitlines() if line.startswith('| `timeout` |')]
+        self.assertEqual(
+            len(rows),
+            1,
+            "Check failed: SKILL.md status table must have exactly one '| `timeout` |' row",
+        )
+        self.assertIn(
+            '不自動重試',
+            rows[0],
+            "Check failed: the timeout row must say '不自動重試'",
+        )
+        self.assertNotIn(
+            '重試 1 次',
+            rows[0],
+            "Check failed: the timeout row must not allow '重試 1 次'",
         )
 
     def test_parameters_appear_before_flow(self):

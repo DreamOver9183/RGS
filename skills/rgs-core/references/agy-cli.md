@@ -64,8 +64,16 @@ agy -p "<prompt>" --model <m> --output-format json --disable-slash-commands --pr
 ## 其他
 
 - 費用：最小的呼叫也有約 1.2 萬 input tokens（agent 系統提示）。
-- 時間：小任務 15–30 秒；一個里程碑 5–20 分鐘；`invoke_subagent` 平行審查 10–15 分鐘；rgs-facet 一次計畫審查約 43–155 秒。
+- 時間：小任務 15–30 秒；一個里程碑 5–20 分鐘；`invoke_subagent` 平行審查 10–15 分鐘；rgs-facet 一次計畫審查原本約 43–155 秒，2026-10-25 起約 5–8 分鐘（見下一節）。
 - 大量資料：多個 agy process 平行比單一對話內的 `invoke_subagent` 快（RimTaiName 實測 4 process 152 秒，對照 4 子代理 202 秒、循序 649 秒），所以 `batch.py` 用 process 平行。
 - 召回：一次餵約 11 萬 tokens 的 log，三個錯誤只找到兩個，卻宣稱全部找到；`digest.py` 因此先 grep、再切塊，並核對每個引用。
 - Git Bash 會把 `/` 開頭的參數改成路徑：手動跑 `agy -p "/usage"` 要設 `MSYS_NO_PATHCONV=1`（腳本已設定）。
 - 額度：`MSYS_NO_PATHCONV=1 agy -p "/usage"` 會印出額度表（`doctor.py` 會跑）。
+
+## agy 1.4.7 補充（2026-10-25 實測）
+
+- `--json-schema` 會讓 agy 加入 `finish` 工具，`structured_output` 只來自 `finish` 的參數。prompt 寫「不要使用任何工具」「只輸出 JSON」時，模型有時照字面用文字輸出；agy 會再送一則「You did not call any tools … call the finish tool」，模型把整份結果重新產生一次（實測多 45–60 秒）。所以 prompt 要明說用 `finish` 交出結果。
+- 串流閒置：伺服器 5 分鐘沒有送資料時，agy 會中斷並自動重試（log：`Run: attempt 1 failed (stream reading error: stream idle timeout (5m0s) …), retrying in 4s`）。即使重試成功，仍回 `status: ERROR`、`error: The stream was interrupted…`，但 `structured_output` 有值；rgs 判為 `error`。
+- `--effort`（`low|medium|high|xhigh|max`）和模型 ID 的強度後綴是同一個設定：`--model gemini-4-argon-high --effort medium` 會以 `invalid model selection … conflicts with --effort=medium` 結束；`--effort high` 和不加的結果相同。
+- 思考量會在沒有版本變更的情況下改變：同一份 prompt，Gemini 4 Argon High 在 2026-10-23～24 輸出 2,758～12,989 token（55～145 秒）；2026-10-25 起變成 25,000～47,000 token（314～485 秒）。產出速度（每秒 80～97 token）與 input tokens 都沒變。判斷是不是「想太久」要看 output_tokens，不要只看耗時；同樣設定重跑通常會再逾時。
+- 逾時的時候，`agy.json` 的 usage 全是 0。實際用量要看 agy 的對話紀錄 `~/.gemini/antigravity-cli/brain/<conversation_id>/.system_generated/logs/transcript.jsonl`：`PLANNER_RESPONSE` 的 `output_tokens`，有沒有 `tool_calls`（`finish`）。thinking 文字會被截斷。

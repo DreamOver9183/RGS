@@ -58,7 +58,7 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | D-7 | `VerdictError`、`PromptError` 帶 `kind`，直接對應 `facet_review.py` 的 status（原 Facet D-3） | 不用再翻譯錯誤種類 | 2026-10-17 |
 | D-8 | 審查者唯讀：`isolated_workspace(..., sealed=True)` 裝上 `sealed` guard（只放行 `finish`、`wait`），加上呼叫前後的 repo 快照比對與工作區新檔檢查（原 Facet D-4） | 計畫放在 prompt 裡，審查者不需要任何工具；hook 實測有效且 fail-closed。改放在 rgs-core，batch／digest 日後也能用 | 2026-10-17 |
 | D-9 | `REVIEWER_MODEL = gemini-4-argon-high`；rgs-facet 直接呼叫 `call_agy`，不走 `call_with_fallback`（原 Facet D-5） | Facet 的原則是失敗不偷換模型；Gemini 4 的額度和 RGS 實作用的 3.8 分開 | 2026-10-17 |
-| D-10 | `AGY_TIMEOUT = 300` 秒：`--print-timeout 300s`，外部在 300 + 15 秒時終止程序樹；Claude 呼叫 Bash 時 `timeout` 設 360,000 毫秒（原 Facet D-6） | 預檢最慢 155 秒 | 2026-10-17 |
+| D-10 | （已由 D-21 取代）`AGY_TIMEOUT = 300` 秒：`--print-timeout 300s`，外部在 300 + 15 秒時終止程序樹；Claude 呼叫 Bash 時 `timeout` 設 360,000 毫秒（原 Facet D-6） | 預檢最慢 155 秒 | 2026-10-17 |
 | D-11 | 計畫放在 `-p` 參數；整個 prompt 超過 30,000 字元時回報 `plan_too_long`，不送出（原 Facet D-7） | 最快最便宜；Windows 命令列上限約 32K | 2026-10-17 |
 | D-12 | rgs-facet 的原始輸出放在系統暫存目錄 `<temp>/rgs-facet/<session>/`，路徑寫在計畫附錄；`roles.md` 規則 7 加註例外 | Plan 模式只能寫計畫檔；rgs-facet 要能用在沒有 `.rgs/` 的專案。沒採用：寫進 `.rgs/runs/`（會在非 RGS 專案建立 `.rgs/`） | 2026-10-17 |
 | D-13 | `facet_review.py` 的 status 與 exit code：`ok` 0、`timeout` 2、`agy_error` 3、`empty_output` 4、`parse_error`／`schema_error` 5、`workspace_modified` 6、`secret_suspected` 7、`forbidden_flag` 8、`plan_too_long` 9、`usage_error` 10（原 Facet PLAN §4.3 與 D-12）。環境檢查改由 `doctor.py --flow facet` 負責，不再有 `--self-check` | 沿用已核准的表；argparse 預設的 exit 2 會和 `timeout` 撞號，所以用法錯誤自行處理 | 2026-10-17 |
@@ -69,6 +69,7 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | D-18 | Claude 端 guard（`guard_agy.py`）只放在 rgs-facet | rgs 的腳本用 subprocess 呼叫 agy，不經過 Bash 指令字串，不受影響；先在 rgs-facet 驗證 | 2026-10-17 |
 | D-19 | 里程碑依序執行，同一時間只有一個 Gemini；相依的里程碑在前一個未合併時堆疊 | agy 同時多個會卡住（agy issue #573）；所有里程碑共用本檔的狀態 | 2026-10-17 |
 | D-20 | M1 的搬檔方式：`prepare` 之後，Claude 把 Facet 已合併的 M1／M2 檔案與 M3 worktree 的 3 個檔案原樣複製進任務 worktree（不改內容），所有調整交給 Gemini；Claude 審查時讀完全部內容 | 讓 Gemini 重打上千行既有程式容易出錯；原樣複製不算撰寫產品程式碼。M3 的檔案從沒審過，所以要全文審查 | 2026-10-17 |
+| D-21 | 取代 D-10：`AGY_TIMEOUT = 900` 秒（`facet_review.py` 的 `--timeout` 預設同步改為 900）；SKILL.md 一律用 Bash 的 `run_in_background` 送審，不再設前景 `timeout`；`timeout` 不自動重試，停下來讓使用者選擇「逾時加倍重跑這個角度一次」「不經審查交付」或「中止」；審查 prompt 改為明說用 `finish` 交出結果 | 2026-10-25 起 Gemini 4 Argon High 對同一份 prompt 的思考量變成 3–10 倍，實測一次 314–485 秒，300 秒必定逾時，原本兩次審查共 5 次嘗試（含重試）全部逾時；Bash 前景上限 10 分鐘，改成 540 秒只剩約 10% 餘裕。舊 prompt 的「不要使用任何工具」和 `finish` 矛盾，模型有時先用文字輸出，被 agy 要求後再重產一次。沒採用：改用 `gemini-4-argon-medium`（34 秒，但漏掉全部真問題）、`--effort`（和模型 ID 的強度後綴是同一個設定） | 2026-10-25 |
 
 ## 架構
 
@@ -259,6 +260,7 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 12. SKILL.md 的指令要用參數佔位符（例如 `<REVIEWER_MODEL>`），不要寫死參數區塊的值；預先核准的指令路徑要和 `allowed-tools` 的寫法完全一致（出處：PR #5 fix-1）。
 13. 文件沒寫明的平台行為（例如 hook 指令會不會代入某個變數）要先實測再設計，不要假設；用拋棄式的專案層 skill 加無頭 `claude -p` 就能驗證（出處：本機驗收 C2）。
 14. 修正指示裡的判斷規則，送出前先用真與假的案例清單模擬一遍；PR #7 連續兩輪 major 都是規則本身的漏洞（出處：PR #7 fix-1、fix-2）。
+15. 外部模型的耗時與思考量，可能在 agy 和模型 ID 都沒變的情況下改變：逾時上限要留足餘裕，逾時後不要用同樣設定重試；排查時拿同一份 prompt 重跑對照，看 output_tokens，不要只看耗時（出處：2026-10-25 rgs-facet 審查逾時）。
 
 ## 修訂歷史
 
@@ -273,3 +275,4 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | v1.6 | 2026-10-18 | M6 已合併（PR #6）；M1–M6 全部完成，進入本機驗收 |
 | v1.7 | 2026-10-18 | 本機驗收紀錄；M7 已合併（PR #7）；教訓 13–14 |
 | v1.8 | 2026-10-18 | 發佈 v1.0.0 |
+| v1.9 | 2026-10-25 | rgs-facet 審查逾時：D-21 取代 D-10；教訓 15 |

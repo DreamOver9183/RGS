@@ -248,7 +248,7 @@ Each round reviews sequentially across three lenses, one at a time (not in paral
 - `gaps`: checks missing scenarios, unhandled edge cases, and undefined error handling
 - `verifiability`: checks whether steps are verifiable with concrete proof commands
 
-Each lens takes about 1–3 minutes per run (default model `gemini-4-argon-high`). Starting from round 2, the prior round's disposition JSON for that lens is passed in, allowing the reviewer to verify whether previous issues have been resolved.
+Each lens takes about 5–8 minutes per run (default model `gemini-4-argon-high`, measured on 2026-10-25; previously about 1–3 minutes), and each run executes in the background. Starting from round 2, the prior round's disposition JSON for that lens is passed in, allowing the reviewer to verify whether previous issues have been resolved.
 
 **3. Ruling and revision**
 
@@ -274,7 +274,8 @@ python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
 **Failures, timeouts, and modifications**
 
 - Any review status other than `ok` does not count as approved; the model is never automatically switched.
-- On timeouts (`timeout`), agy errors (`agy_error`), missing structured outputs (`empty_output`), or parsing/validation errors (`parse_error`, `schema_error`), the script retries at most once for the same model; if it fails again, the loop stops.
+- Timeouts (`timeout`; `AGY_TIMEOUT` defaults to 900 seconds) are not retried automatically, because rerunning with the same settings almost always times out again. Claude stops and asks whether to rerun that lens once with a doubled timeout, deliver without cross-model review, or abort.
+- On agy errors (`agy_error`), missing structured outputs (`empty_output`), or parsing/validation errors (`parse_error`, `schema_error`), the script retries at most once for the same model; if it fails again, the loop stops.
 - If file modifications are detected (`workspace_modified`), the script **never retries**; it halts immediately and lists the modified files.
 - If suspected secrets are found (`secret_suspected`) or the prompt exceeds 30,000 characters (`plan_too_long`), the review is not submitted until you trim or remove the problematic content.
 - When the loop halts, Claude asks whether you want to deliver directly without cross-model review (marked as unreviewed in the summary) or abort.
@@ -287,7 +288,7 @@ The exact path is included in the review summary for inspection.
 
 **Plan mode permissions**
 
-The review loop usually finishes within the same turn, where `allowed-tools` pre-approves execution without prompting for permission. Only when the loop spans across multiple turns (for example, pausing to ask you a question) might a confirmation prompt appear. In that case, you can add the following rule to `permissions.allow` in your project or global `.claude/settings.json` to auto-allow it:
+`allowed-tools` only pre-approves commands in the turn that invokes the skill. Each review runs in the background, and every completion notification starts a new turn, so the second and later reviews may each ask for confirmation (not yet tested since the switch to background runs on 2026-10-25). To auto-allow them, add the following rule to `permissions.allow` in your project or global `.claude/settings.json`:
 
 ```json
 "Bash(python -I C:/Users/<user>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"

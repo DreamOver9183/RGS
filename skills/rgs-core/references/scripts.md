@@ -63,7 +63,7 @@ review.py --diff-base REF [--head REF]             # 任意本地範圍
 
 ```text
 python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiability --round <N> --model <M>
-                                         [--timeout 300] [--session <ID>] [--run-dir <資料夾>] [--repo <專案資料夾>] [--prior-stdin]
+                                         [--timeout 900] [--session <ID>] [--run-dir <資料夾>] [--repo <專案資料夾>] [--prior-stdin]
 ```
 
 ### 參數表
@@ -74,7 +74,7 @@ python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|g
 | `--lens` | 必填。`prompt.LENSES` 之一（`logic`、`gaps`、`verifiability`） |
 | `--round` | 必填。從 1 起算的整數 |
 | `--model` | 必填。agy 模型 ID（必須是 `gemini-` 開頭） |
-| `--timeout` | 秒，預設 300。正整數 |
+| `--timeout` | 秒，預設 900。正整數。一次審查可能超過 Bash 前景 10 分鐘的上限，SKILL.md 一律在背景執行 |
 | `--session` | 預設取環境變數 `CLAUDE_SESSION_ID`，沒有時用 `'manual'`。只允許英數、`-`、`_`、`.`，不能是 `.` 或 `..` |
 | `--run-dir` | 預設 `os.path.join(tempfile.gettempdir(), 'rgs-facet', <session>)` |
 | `--repo` | 預設目前工作目錄。用來做呼叫前後的快照比對 |

@@ -5,6 +5,8 @@
 | 現象 | 原因 | 做法 |
 | :-- | :-- | :-- |
 | `agy.kind: timeout`，response 是空的 | `--print-timeout` 到期；agy 仍回報 SUCCESS | 看 `.rgs/runs/<task>/*.err`。實作任務太大就拆小 spec；確實需要更久時用 `--timeout` |
+| rgs-facet 回 `timeout`，`agy.log` 最後一筆 `streamGenerateContent` 之後就沒有紀錄 | 模型還在思考，不是當掉；Gemini 4 Argon High 從 2026-10-25 起一次審查常要 5–8 分鐘 | 看 agy 對話紀錄的 `output_tokens`（位置見 `agy-cli.md`）。同樣設定重跑通常會再逾時，要用更長的 `--timeout` 重跑 |
+| rgs-facet 回 `agy_error`，detail 是 `The stream was interrupted` | 伺服器串流停住 5 分鐘，agy 自動重試；就算重試成功也回 ERROR | 同模型重試 1 次 |
 | `agy.kind: empty`，response 說「在等子代理」 | 主代理沒等子代理回報就結束 | 重跑一次；仍失敗就換模型（`--model`），或減少 lenses |
 | `agy.kind: quota`（exit 3） | 額度用完；fallback 鏈也用完 | ⚠️ 回報使用者。`doctor.py` 會顯示額度表；可在 profile 的 `models` 加備援模型 |
 | `agy.kind: error`，detail 是 `Authentication expired` | agy 登入過期 | 請使用者在終端機執行 `agy` 重新登入 |
