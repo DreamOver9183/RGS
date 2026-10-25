@@ -74,6 +74,9 @@
 - agy hook 沒有執行、agy 以 `invalid UTF-8` 錯誤結束 → Windows 上 hook 以 `cmd /c` 執行，沒有空白的路徑加了引號就會失敗 → 執行檔路徑只在含空白時加引號。
 - 少傳 `--model` 時呼叫的是 Claude → 使用者的 agy 預設模型是 Claude Opus → `--model` 必傳，且必須以 `gemini-` 開頭（`call_agy` 的 `check_agy_args` 會擋下其他模型）。
 - 逾時被強制結束後仍留下程序 → agy 會另外啟動 language server 子程序，只結束 agy 本身不夠 → `call_agy` 以新的程序群組啟動，逾時時終止整個程序樹（`kill_tree`）。
+- rgs-facet 的審查逾時，看起來沒有回應 → Gemini 4 Argon High 從 2026-10-25 起，對同一份 prompt 的思考量變成 3–10 倍（產出速度不變），300 秒必定逾時，同樣設定重試也一樣 → `AGY_TIMEOUT` 900、背景執行、`timeout` 不自動重試；排查時拿同一份 prompt 重跑對照，看 agy 對話紀錄的 `output_tokens`（位置見 `agy-cli.md`）。
+- 帶 `--json-schema` 的 prompt 寫「不要使用任何工具」→ 結果只能經由 agy 加入的 `finish` 交出，模型有時照字面用文字輸出，agy 再要求呼叫 `finish`，整份結果重產一次 → prompt 明說用 `finish` 交出結果。
+- agy 回 `ERROR`、`The stream was interrupted`，卻有 `structured_output` → 伺服器串流閒置 5 分鐘時 agy 會自動重試，成功後仍回 ERROR → 照 `error` 處理，同模型重試一次。
 - 審查者從參數推測出主 checkout 的位置 → 只要參數出現主 checkout 的路徑（包括 `--log-file`）就可能洩漏 → 輸出檔先寫系統暫存目錄，agy 結束後再複製到 run 目錄。
 
 ### rgs 流程（開發本 repo 時）

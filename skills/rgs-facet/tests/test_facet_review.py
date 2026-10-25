@@ -200,6 +200,25 @@ class TestFacetReviewOkAndBasics(BaseFacetReviewTest):
         self.assertIn('User authentication system using JWT tokens.', prompt_arg)
         self.assertNotIn('This is confidential internal notes', prompt_arg)
 
+    def test_default_timeout_is_900(self):
+        """沒給 --timeout 時，傳給 agy 的 --print-timeout 是 900s。"""
+        extra_env = {'FAKE_AGY_STRUCTURED': json.dumps(VALID_VERDICT)}
+        args = [
+            '--plan-file', self.plan_file,
+            '--lens', 'logic',
+            '--round', '1',
+            '--model', 'gemini-3.8-flash-high',
+            '--run-dir', self.run_dir,
+            '--repo', self.repo_dir,
+        ]
+        proc = self.run_review(args, scenario='structured', extra_env=extra_env)
+        self.assertEqual(proc.returncode, 0, f'Expected exit code 0, got {proc.returncode}: {proc.stderr}')
+
+        calls = self.get_recorded_calls()
+        self.assertEqual(len(calls), 1)
+        argv = calls[0]['argv']
+        self.assertEqual(argv[argv.index('--print-timeout') + 1], '900s')
+
 
 class TestFacetReviewFailureStatuses(BaseFacetReviewTest):
     """驗收條件 1: timeout, agy_error (error/quota), empty_output, parse_error, schema_error."""

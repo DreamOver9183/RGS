@@ -241,7 +241,7 @@ Claude 會依序：
 - `gaps`：檢查缺少的情境、遺漏的邊界條件與未定義的錯誤處理
 - `verifiability`：檢查步驟是否具備可驗證性與對應的 proof 指令
 
-每個角度單次耗時約 1–3 分鐘（預設模型 `gemini-4-argon-high`）。第二輪起會帶入上一輪該角度的處置 JSON，讓審查者確認先前提出的問題是否已被修復。
+每個角度單次耗時約 5–8 分鐘（預設模型 `gemini-4-argon-high`，2026-10-25 實測；之前約 1–3 分鐘），送審在背景執行。第二輪起會帶入上一輪該角度的處置 JSON，讓審查者確認先前提出的問題是否已被修復。
 
 **3. 裁決與修訂**
 
@@ -267,7 +267,8 @@ python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
 **異常與重試**
 
 - 審查結果的 `status` 不是 `ok` 就不算核准，絕不自動更換模型。
-- 若遇到逾時（`timeout`）、agy 錯誤（`agy_error`）、無結構化輸出（`empty_output`）、解析或驗證錯誤（`parse_error`、`schema_error`），同一模型最多自動重試 1 次；仍失敗則停止迴圈。
+- 逾時（`timeout`，`AGY_TIMEOUT` 預設 900 秒）不自動重試，因為同樣設定重跑幾乎一定再逾時。Claude 會停下來問你：要把逾時加倍、重跑這個角度一次，不經跨模型審查直接交付，還是中止。
+- 若遇到 agy 錯誤（`agy_error`）、無結構化輸出（`empty_output`）、解析或驗證錯誤（`parse_error`、`schema_error`），同一模型最多自動重試 1 次；仍失敗則停止迴圈。
 - 若偵測到改檔（`workspace_modified`），**絕不重試**，立即停止並告訴你哪些檔案被變動。
 - 計畫疑含機密（`secret_suspected`）或 prompt 超過 30,000 字元（`plan_too_long`）時不送審，由你精簡或排除後重試。
 - 迴圈停止時，Claude 會詢問你要「不經跨模型審查直接交付（摘要標示未審查）」或「中止」。
@@ -280,7 +281,7 @@ python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
 
 **Plan 模式的權限**
 
-審查迴圈通常在同一回合內完成，`allowed-tools` 已預先核准，實測不會跳出權限確認。只有迴圈跨回合（例如中途停下來問你）時才可能要確認，這時可以把下列規則加進專案或全域 `.claude/settings.json` 的 `permissions.allow` 清單以自動放行：
+`allowed-tools` 只預先核准呼叫 skill 的那一回合。送審在背景執行，每次完成通知都會開始新的回合，所以第二次起的送審可能每次都要確認（2026-10-25 改成背景執行後尚未實測）。把下列規則加進專案或全域 `.claude/settings.json` 的 `permissions.allow` 清單，就能自動放行：
 
 ```json
 "Bash(python -I C:/Users/<使用者>/.claude/skills/rgs-facet/scripts/facet_review.py:*)"

@@ -2,7 +2,7 @@
 
 Usage:
     python -I facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiability --round <N> --model <M>
-                              [--timeout 300] [--session <ID>] [--run-dir <資料夾>] [--repo <專案資料夾>] [--prior-stdin]
+                              [--timeout 900] [--session <ID>] [--run-dir <資料夾>] [--repo <專案資料夾>] [--prior-stdin]
 
 Status and Exit Codes:
     | status             | exit | condition                                                              |
@@ -192,7 +192,7 @@ def main():
     parser.add_argument('--lens', required=True)
     parser.add_argument('--round', required=True, type=int)
     parser.add_argument('--model', required=True)
-    parser.add_argument('--timeout', type=int, default=300)
+    parser.add_argument('--timeout', type=int, default=900)
     parser.add_argument('--session', default=None)
     parser.add_argument('--run-dir', default=None)
     parser.add_argument('--repo', default=None)

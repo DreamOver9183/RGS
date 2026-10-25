@@ -263,6 +263,15 @@ class TestBuildPromptRound1(unittest.TestCase):
                 self.assertNotIn("{ROUND2_BLOCK}", prompt_text)
                 self.assertNotIn("{PLAN}", prompt_text)
 
+    def test_build_prompt_tells_reviewer_to_call_finish(self):
+        """--json-schema 只能經由 finish 交出結果：prompt 要明說呼叫 finish，不能叫審查者不用任何工具。"""
+        for lens in prompt.LENSES:
+            with self.subTest(lens=lens):
+                prompt_text = build_prompt("這是待審核的計畫內文。", lens, round_no=1)
+                self.assertIn("呼叫 finish 工具交出結果", prompt_text)
+                self.assertNotIn("不要使用任何工具", prompt_text)
+                self.assertNotIn("只輸出下列 JSON", prompt_text)
+
 
 class TestBuildPromptRound2(unittest.TestCase):
     """驗收條件 6: 第二輪 prompt 組裝。"""
