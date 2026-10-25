@@ -38,6 +38,16 @@ class BatchTest(unittest.TestCase):
         self.assertEqual([r['input']['id'] for r in rows], [f'n{i}' for i in range(1, 8)])
         self.assertEqual(rows[0]['result']['output'], 'out-n1')
 
+    def test_prompt_asks_for_finish(self):
+        # --json-schema adds a finish tool; "use no tools" made the model answer in text and redo it.
+        self.batch()
+        argv = calls(self.state)[0]['argv']
+        prompt = argv[argv.index('-p') + 1]
+        self.assertIn('--json-schema', argv)
+        self.assertIn('呼叫 finish', prompt)
+        self.assertNotIn('不要使用任何工具', prompt)
+        self.assertIn('Translate each name.', prompt)
+
     def test_rerun_resumes_without_new_calls(self):
         self.batch()
         before = len(calls(self.state))
