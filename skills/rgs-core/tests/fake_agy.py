@@ -11,6 +11,8 @@ FAKE_AGY_LABEL     label string for the log file; empty string writes log withou
 FAKE_AGY_MODELS    semicolon-separated model IDs for the 'models' subcommand
 FAKE_AGY_TOUCH     absolute path to append a line to before processing any scenario
 FAKE_AGY_STRUCTURED  JSON string for structured and ws_write scenarios
+FAKE_AGY_MODEL_SCENARIOS  semicolon-separated model=scenario pairs; the scenario for that --model
+                   replaces FAKE_AGY_SCENARIO (to test model fallback)
 
 Subcommands handled before reading environment:
 --version          prints 'agy 1.4.0'
@@ -50,7 +52,9 @@ def main():
         if models_env:
             model_ids = [m.strip() for m in models_env.split(';') if m.strip()]
         else:
-            model_ids = ['gemini-4-argon-high', 'gemini-3.8-flash-high', 'gemini-3.8-flash-low']
+            model_ids = ['gemini-4-neon-high', 'gemini-4-hydrogen-high', 'gemini-4-hydrogen-xhigh',
+                         'gemini-4-argon-high', 'gemini-3.8-flash-high', 'gemini-3.8-flash-low',
+                         'gpt-oss-120b-medium', 'claude-opus-5-5-high']
         for mid in model_ids:
             print(f'{mid}\tFake {mid}')
         sys.exit(0)
@@ -59,6 +63,10 @@ def main():
     state_dir = os.environ.get('FAKE_AGY_DIR')
     prompt = arg('-p') or ''
     model = arg('--model')
+    for pair in (os.environ.get('FAKE_AGY_MODEL_SCENARIOS') or '').split(';'):
+        name, _, value = pair.partition('=')
+        if name.strip() and name.strip() == model:
+            scenario = value.strip()
     schema = arg('--json-schema')
     log_file = arg('--log-file')
     if log_file:

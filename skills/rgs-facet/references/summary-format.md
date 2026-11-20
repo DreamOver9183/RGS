@@ -11,7 +11,12 @@
 
 ```text
 ## 審查摘要
-- 審查者／模型：Gemini（要求：<requested_model>／agy 回報：<reported_model 或「未確認」>）
+- 審查模型（替補清單：<REVIEWER_MODELS>）：
+  - logic：<requested_model>（agy 回報：<reported_model 或「未確認」>）
+  - gaps：<requested_model>（agy 回報：<…>）
+  - verifiability：<requested_model>（agy 回報：<…>）
+  - 改用替補模型的原因：<失敗的模型與 status，例如「gemini-4-argon-high timeout」；沒有就寫「無」>
+  - 非跨模型審查的角度：<由 Claude 審查的角度；沒有就寫「無」>
 - 輪數：N / MAX_ROUNDS
 - 最終 verdict：logic <…>、gaps <…>、verifiability <…>
 - 收斂方式：三個角度都 APPROVED／仲裁收斂（沒有採納任何 finding）／達到輪數上限／未審查（原因）
@@ -23,7 +28,9 @@
 ```
 
 ### 說明
-- **審查者／模型**：要求的模型（`requested_model`）與 agy 回報的模型（`reported_model`）分開列出；若 `reported_model` 為 `null`，寫「未確認」。
+- **審查模型**：寫最後一輪每個角度實際用的模型（`requested_model`）與 agy 回報的模型（`reported_model`），兩者分開列出；若 `reported_model` 為 `null`，寫「未確認」。各輪模型不同時，附錄逐輪寫明。
+- **改用替補模型的原因**：`fallback_used` 為 `true` 時，從 `attempts` 與 `skipped` 寫出哪個模型、因為什麼（`timeout`、`agy_error`、額度等）沒有產出結果。
+- **非跨模型審查的角度**：`cross_model` 為 `false` 的角度是由 Claude（與起草者同一家）審查，必須寫明，讓使用者知道這些角度沒有得到其他家模型的觀點。
 - **收斂方式**：
   - `三個角度都 APPROVED`：本輪三個角度皆通過。
   - `仲裁收斂（沒有採納任何 finding）`：審查者雖有 findings 但全部經 Claude 仲裁駁回，計畫內容無須修改。
@@ -42,13 +49,13 @@
 ## 逐輪審查結果
 
 ### 第 1 輪
-- logic：verdict = <APPROVED|REVISE|BLOCKED>
+- logic：verdict = <APPROVED|REVISE|BLOCKED>（模型：<requested_model>；替補：<attempts 中失敗的模型與 status，沒有就省略>）
   - coverage：<本次檢查範圍>
   - limitations：<限制與未覆蓋之處>
-- gaps：verdict = <APPROVED|REVISE|BLOCKED>
+- gaps：verdict = <APPROVED|REVISE|BLOCKED>（模型：<requested_model>）
   - coverage：<本次檢查範圍>
   - limitations：<限制與未覆蓋之處>
-- verifiability：verdict = <APPROVED|REVISE|BLOCKED>
+- verifiability：verdict = <APPROVED|REVISE|BLOCKED>（模型：<requested_model>）
   - coverage：<本次檢查範圍>
   - limitations：<限制與未覆蓋之處>
 

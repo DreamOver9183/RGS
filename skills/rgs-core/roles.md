@@ -10,7 +10,7 @@
 | Claude 主代理 | 釐清需求、設計、寫 spec 與修正指示、審 Gemini 的 diff、裁決審查意見、更新計畫與知識庫；/rgs-main 中 PASS 後執行 `land` | 直接改產品程式碼；執行 `gh pr merge` |
 | Gemini（agy，`--mode accept-edits`） | 依 spec 實作與修正，修正輪預設續用同一個對話 | 執行 shell 或 git、改 spec 清單外的檔案、讀機密檔、改知識庫（guard hook 強制） |
 | agy 審查者（新對話、唯讀 guard） | 合併閘門審查：每個面向一個子代理平行審 | 寫任何檔案 |
-| agy 計畫審查者（rgs-facet，新對話、sealed guard） | 從一個角度審查計畫並以 JSON 回報 | 禁止使用任何工具、讀寫任何檔案 |
+| agy 計畫審查者（rgs-facet，新對話、sealed guard；優先 Gemini，失敗時依序改用替補模型） | 從一個角度審查計畫並以 JSON 回報 | 禁止使用任何工具、讀寫任何檔案 |
 | sub-agent（Claude） | 調查、跑 agy、驗證、更新文件、commit、開 PR、稽核 | 修程式碼；遇到失敗就停下回報 |
 
 Claude 可以直接寫的只有：spec、修正指示、審查備註、需求與設計文件、知識庫、commit 訊息、PR 內文、release notes。任何產品程式碼（含測試）都交給 Gemini。

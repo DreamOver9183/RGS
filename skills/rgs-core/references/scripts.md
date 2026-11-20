@@ -7,7 +7,7 @@
 | code | 意義 | 該怎麼做 |
 | --: | :-- | :-- |
 | 0 | 成功 | 繼續 |
-| 2 | 參數錯誤（argparse），或 agy 參數／模型不合規（`call_agy` 的檢查） | 修正指令；檢查 profile 的模型是否以 `gemini-` 開頭 |
+| 2 | 參數錯誤（argparse），或 agy 參數／模型不合規（`call_agy` 的檢查） | 修正指令；實作模型必須以 `gemini-` 開頭，審查、批次、摘要的模型可以是 `gemini-`、`gpt-oss-`、`claude-` 開頭 |
 | 3 | 所有模型都額度用完 | ⚠️ 回報使用者，問要換模型或稍後再試 |
 | 4 | 有檔案超出允許清單，或格式問題 | 看 `scope.outside_allowed`／`formatting`；寫修正指示，或用 `fix --allow` 擴充清單（要有理由） |
 | 5 | agy 沒有可用結果（timeout、錯誤、空回應、沒有改任何檔案） | 看 `agy.kind`、`agy.detail` 與 `.rgs/runs/<task>/*.err`；可重跑一次，再失敗就回報 |
@@ -57,12 +57,12 @@ review.py --diff-base REF [--head REF]             # 任意本地範圍
 
 ## facet_review.py
 
-完成**一次送審**（一份計畫、一個角度、一輪），把結果整理成一行 JSON 印在 stdout，並在 run 目錄留下完整紀錄。只做一次送審，重試與多輪迴圈由 SKILL.md 負責。
+完成**一次送審**（一份計畫、一個角度、一輪），把結果整理成一行 JSON 印在 stdout，並在 run 目錄留下完整紀錄。換模型在這裡做（design D-22）：依 `--models` 的順序呼叫，前一個模型回 `timeout`、`agy_error`、`empty_output`、`parse_error`、`schema_error` 才換下一個；`workspace_modified` 與呼叫 agy 之前就發現的錯誤立刻結束。多輪迴圈由 SKILL.md 負責，腳本回非 `ok` 時 SKILL.md 不再重試。
 
 ### 用法
 
 ```text
-python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiability --round <N> --model <M>
+python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiability --round <N> --models <M1,M2,...>
                                          [--timeout 900] [--session <ID>] [--run-dir <資料夾>] [--repo <專案資料夾>] [--prior-stdin]
 ```
 
@@ -73,14 +73,16 @@ python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|g
 | `--plan-file` | 必填。計畫檔；只送出 `<!-- facet:appendix -->` 之前的內容 |
 | `--lens` | 必填。`prompt.LENSES` 之一（`logic`、`gaps`、`verifiability`） |
 | `--round` | 必填。從 1 起算的整數 |
-| `--model` | 必填。agy 模型 ID（必須是 `gemini-` 開頭） |
-| `--timeout` | 秒，預設 900。正整數。一次審查可能超過 Bash 前景 10 分鐘的上限，SKILL.md 一律在背景執行 |
+| `--models` | 必填（`--model` 是別名）。以逗號分隔的替補清單，依序嘗試；每個 ID 都必須以 `gemini-`、`gpt-oss-` 或 `claude-` 開頭，有一個不合規就回 `forbidden_flag`、不呼叫 agy。重複與空白會被去掉 |
+| `--timeout` | 秒，預設 900。正整數，每個模型各自計算。一次審查可能超過 Bash 前景 10 分鐘的上限，SKILL.md 一律在背景執行 |
 | `--session` | 預設取環境變數 `CLAUDE_SESSION_ID`，沒有時用 `'manual'`。只允許英數、`-`、`_`、`.`，不能是 `.` 或 `..` |
 | `--run-dir` | 預設 `os.path.join(tempfile.gettempdir(), 'rgs-facet', <session>)` |
 | `--repo` | 預設目前工作目錄。用來做呼叫前後的快照比對 |
 | `--prior-stdin` | 第二輪起必須加：從 stdin 讀前輪處置 JSON |
 
 ### status 與 exit code
+
+回報的是最後一個嘗試的模型的結果；會換模型的 status 出現在最終結果，代表清單裡每個模型都失敗了。
 
 | status | exit | 說明 |
 | :-- | --: | :-- |
@@ -92,7 +94,7 @@ python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|g
 | `schema_error` | 5 | verdict schema 驗證失敗 |
 | `workspace_modified` | 6 | 呼叫期間 repo 或工作區有變動（優先於呼叫 agy 之後的所有其他 status） |
 | `secret_suspected` | 7 | 計畫內容疑含機密；不呼叫 agy |
-| `forbidden_flag` | 8 | agy 參數或模型不合規；不呼叫 agy |
+| `forbidden_flag` | 8 | agy 參數不合規，或清單中有審查者不能用的模型；不呼叫 agy |
 | `plan_too_long` | 9 | 計畫內容組出之 prompt 超過長度限制；不呼叫 agy |
 | `usage_error` | 10 | 命令列參數錯誤、檔案不存在或前輪資料格式錯誤；不呼叫 agy |
 
@@ -107,14 +109,29 @@ python -I <facet>/scripts/facet_review.py --plan-file <計畫檔> --lens logic|g
 - `agy.json`：agy 的 stdout 輸出
 - `agy.err`：agy 的 stderr 輸出
 - `agy.log`：agy 的 log 檔副本（解析出的模型 label）
+- `agy-2.*`、`agy-3.*`…：換到第 2、3…個模型時的同一組檔案（對應 `attempts[].raw`）
 - `guard.log`：sealed 工作區中的 guard 決策紀錄
-- `meta.json`：本次呼叫的完整中繼資料（狀態、exit code、模型、耗時、快照變更等）
+- `meta.json`：本次呼叫的完整中繼資料（狀態、exit code、模型清單與每次嘗試、耗時、快照變更等）
+
+`<run-dir>/model-skips.json` 記錄同一個 session 中額度用完或逾時的模型：之後的送審在 2 小時內先跳過它們（逾時只在這次的 `--timeout` 不大於當時的值時跳過）；全部都會被跳過時就不跳過。成功後刪除該模型的紀錄。
+
+### stdout 的欄位（除了 verdict 與 findings）
+
+| 欄位 | 說明 |
+| :-- | :-- |
+| `requested_model` | 最後一個嘗試的模型，`ok` 時就是產出 verdict 的模型 |
+| `reported_model` | 這個模型在 agy log 中的 label（agy 用戶端解析，伺服器端未確認），沒有時是 `null` |
+| `models` | 這次的替補清單 |
+| `attempts` | 每次嘗試：`model`、`status`、`detail`、`reported_model`、`duration_s`、`raw`（檔名前綴） |
+| `skipped` | 因先前失敗而跳過的模型與原因（`quota`／`timeout`） |
+| `fallback_used` | `requested_model` 不是清單第一個時為 `true` |
+| `cross_model` | `requested_model` 是 `claude-` 開頭時為 `false`：這個角度不是跨模型審查 |
 
 ## 其他
 
 | 腳本 | 用途 |
 | :-- | :-- |
-| `doctor.py [--quick] [--flow main\|pr\|facet] [--model <M>] [--init] [--json]` | 環境檢查（含 git 身分：沒有 user.name／user.email 時 `land`／`ship` 無法 commit）；`--init` 產生 `.rgs/profile.json` 草稿並列出可加的權限規則；`--flow facet --model <M>` 不需要 git repo，檢查 Python、agy、模型 ID 與額度，給 rgs-facet 用 |
+| `doctor.py [--quick] [--flow main\|pr\|facet] [--models <M1,M2,...>] [--init] [--json]` | 環境檢查（含 git 身分：沒有 user.name／user.email 時 `land`／`ship` 無法 commit）；`--init` 產生 `.rgs/profile.json` 草稿並列出可加的權限規則；`--flow facet --models <M1,M2,...>`（`--model` 是別名）不需要 git repo，檢查 Python、agy、模型 ID 與額度，給 rgs-facet 用：模型前綴不合規或清單中沒有任何模型出現在 `agy models` 時 fail，只有部分替補模型不在清單時 warn |
 | `scope_check.py --task ID` | 單獨跑範圍檢查 |
 | `secret_scan.py [--cwd DIR] [--files …]` | 掃描 staged diff 或指定檔案 |
 | `batch.py …` | 大量資料批次，見 `delegation.md` |

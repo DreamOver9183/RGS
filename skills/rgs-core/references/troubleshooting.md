@@ -5,13 +5,17 @@
 | 現象 | 原因 | 做法 |
 | :-- | :-- | :-- |
 | `agy.kind: timeout`，response 是空的 | `--print-timeout` 到期；agy 仍回報 SUCCESS | 看 `.rgs/runs/<task>/*.err`。實作任務太大就拆小 spec；確實需要更久時用 `--timeout` |
-| rgs-facet 回 `timeout`，`agy.log` 最後一筆 `streamGenerateContent` 之後就沒有紀錄 | 模型還在思考，不是當掉；Gemini 4 Argon High 從 2026-10-25 起一次審查常要 5–8 分鐘 | 看 agy 對話紀錄的 `output_tokens`（位置見 `agy-cli.md`）。同樣設定重跑通常會再逾時，要用更長的 `--timeout` 重跑 |
-| rgs-facet 回 `agy_error`，detail 是 `The stream was interrupted` | 伺服器串流停住 5 分鐘，agy 自動重試；就算重試成功也回 ERROR | 同模型重試 1 次 |
+| rgs-facet 回 `timeout`，`agy.log` 最後一筆 `streamGenerateContent` 之後就沒有紀錄 | 模型還在思考，不是當掉；Gemini 4 Argon High 從 2026-10-25 起一次審查常要 5–8 分鐘（前兩順位的 Gemini 4 Neon High、Hydrogen XHigh 約 1–2 分鐘） | 腳本會自動換下一個模型；回 `timeout` 表示最後一個模型也逾時。看 agy 對話紀錄的 `output_tokens`（位置見 `agy-cli.md`）。同樣設定重跑通常會再逾時，要用更長的 `--timeout` 重跑 |
+| rgs-facet 的 `attempts` 有 `agy_error`，detail 是 `The stream was interrupted` | 伺服器串流停住 5 分鐘，agy 自動重試；就算重試成功也回 ERROR | 腳本已改用下一個模型；整條清單都失敗才會停下來問使用者 |
+| rgs-facet 的 `fallback_used` 一直是 `true`、`skipped` 有第一個模型 | 第一個模型在這個 session 額度用完或逾時，2 小時內先跳過 | 看 `<run-dir>/model-skips.json`；額度恢復後刪掉該模型的紀錄，或等 2 小時 |
 | `agy.kind: empty`，response 說「在等子代理」 | 主代理沒等子代理回報就結束 | 重跑一次；仍失敗就換模型（`--model`），或減少 lenses |
 | `agy.kind: quota`（exit 3） | 額度用完；fallback 鏈也用完 | ⚠️ 回報使用者。`doctor.py` 會顯示額度表；可在 profile 的 `models` 加備援模型 |
 | `agy.kind: error`，detail 是 `Authentication expired` | agy 登入過期 | 請使用者在終端機執行 `agy` 重新登入 |
 | `guard_denials` 有東西 | Gemini 想做被禁止的事 | 看 reason：要改清單外的檔案（判斷是否合理，合理就 `fix --allow`）、要跑指令（由 Claude 跑並把結果寫進修正指示）、要讀機密（不允許） |
 | Gemini 宣稱完成，但 `scope.changed` 是空的（exit 5） | 寫入被擋，或模型只是描述沒動手 | 看 `guard_denials` 與 response_file，修正 spec 後重跑 |
+| `guard_denials` 全是 `<工具>: tool not allowed in this run`，連讀檔、寫清單內的檔案都被擋 | agy 升級後工具改名（1.5.9：`read_file`、`write_file`、`edit_file`；1.5.12 沿用），guard 不認得 | 更新 rgs skills；仍發生時，照 `agy-cli.md`「工具名稱與參數」把新名稱加進 `guard.py` 並補測試。不要放行能執行程式或連網的工具 |
+| 審查者或實作者的 `guard_denials` 有多行 PowerShell（`$變數`、`foreach`、`;`），之後又有成功的 `Get-ChildItem`、`rg` | agy 1.5.13 起模型會把相關的 shell 指令串成一條；guard 只放行單一唯讀指令 | 正常現象，模型被擋後會改用單一指令。只有任務因此沒完成時才需要處理：在 spec 寫明要讀的檔案。不要放寬 guard |
+| rgs-facet 的 finding 幾乎都是 `evidence_found: false` | 審查模型把多段引用接在同一個 `evidence`（Gemini 4 Hydrogen 的習慣），逐字比對失敗 | 審查 prompt 已要求只放一段連續的原文；仍發生時 Claude 自己到計畫裡找對應段落，找不到才駁回 |
 | `main_checkout_changed_during_run: true` | 有東西寫進了主 checkout | 立刻檢查 `git status`。可能是使用者自己在改，也可能是 guard 失效，查明前不要繼續 |
 | 修正輪很慢、很貴 | 續寫的對話累積了大量 tokens | `fix --fresh` 開新對話（超過門檻時會自動開） |
 | 同樣的錯一直出現 | 規則或 spec 不夠明確 | 寫進 spec 的「先前的教訓」和知識庫；修正指示要指出檔案、行號與正確寫法 |

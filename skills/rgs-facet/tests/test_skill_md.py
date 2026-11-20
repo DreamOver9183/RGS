@@ -157,9 +157,10 @@ class TestSkillMdStructure(unittest.TestCase):
     def test_parameters_block_verbatim(self):
         """參數區塊必須逐字包含指定的常數定義。"""
         self.assertIn(
-            'REVIEWER_MODEL = gemini-4-argon-high',
+            'REVIEWER_MODELS = gemini-4-neon-high,gemini-4-hydrogen-xhigh,gemini-4-argon-high,'
+            'gemini-3.8-flash-high,gpt-oss-120b-medium,claude-opus-5-5-high',
             self.content,
-            "Check failed: SKILL.md must contain exact 'REVIEWER_MODEL = gemini-4-argon-high'",
+            "Check failed: SKILL.md must contain the exact REVIEWER_MODELS fallback chain",
         )
         self.assertIn(
             'MAX_ROUNDS     = 3',
@@ -204,9 +205,25 @@ class TestSkillMdStructure(unittest.TestCase):
             "Check failed: the timeout row must not allow '重試 1 次'",
         )
 
+    def test_fallback_is_left_to_the_script(self):
+        """D-22: 換模型由 facet_review.py 依清單進行，Claude 不再自動重試，也不寫「同模型重試」。"""
+        self.assertNotIn(
+            '重試 1 次',
+            self.content,
+            "Check failed: SKILL.md must not tell Claude to retry the same model ('重試 1 次')",
+        )
+        self.assertIn(
+            'cross_model',
+            self.content,
+            "Check failed: SKILL.md must tell Claude what to write when the reviewer was Claude (cross_model)",
+        )
+        rows = [line for line in self.content.splitlines() if line.startswith('| `workspace_modified` |')]
+        self.assertEqual(len(rows), 1)
+        self.assertIn('不換模型', rows[0])
+
     def test_parameters_appear_before_flow(self):
         """參數區塊必須出現在流程章節之前。"""
-        param_pos = self.content.find('REVIEWER_MODEL = gemini-4-argon-high')
+        param_pos = self.content.find('REVIEWER_MODELS = gemini-4-neon-high')
         flow_pos = self.content.find('流程')
         self.assertNotEqual(
             param_pos,
@@ -264,15 +281,22 @@ class TestSkillMdStructure(unittest.TestCase):
 
     def test_commands_use_parameters(self):
         """流程與呼叫指令中的模型與逾時應使用參數佔位符，路徑使用完整變數。"""
-        self.assertEqual(
-            self.content.count('gemini-4-argon-high'),
-            1,
-            "Check failed: 'gemini-4-argon-high' must appear exactly once in SKILL.md (in parameters block only)",
-        )
+        for model in ('gemini-4-neon-high', 'gemini-4-hydrogen-xhigh', 'gemini-4-argon-high',
+                      'gemini-3.8-flash-high', 'gpt-oss-120b-medium', 'claude-opus-5-5-high'):
+            self.assertEqual(
+                self.content.count(model),
+                1,
+                f"Check failed: '{model}' must appear exactly once in SKILL.md (in parameters block only)",
+            )
         self.assertIn(
-            '--model <REVIEWER_MODEL>',
+            '--models <REVIEWER_MODELS>',
             self.content,
-            "Check failed: commands must use '--model <REVIEWER_MODEL>' instead of hardcoded model",
+            "Check failed: commands must use '--models <REVIEWER_MODELS>' instead of hardcoded models",
+        )
+        self.assertNotIn(
+            '<REVIEWER_MODEL>',
+            self.content,
+            "Check failed: the old single-model placeholder '<REVIEWER_MODEL>' must not remain",
         )
         self.assertIn(
             '--timeout <AGY_TIMEOUT>',

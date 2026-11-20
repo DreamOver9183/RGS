@@ -62,6 +62,44 @@ class DecideTest(unittest.TestCase):
         policy = dict(self.policy, role='reviewer')
         self.assertIn('read-only', self.decide('write_to_file', policy, TargetFile=self.p('src', 'app.py')))
 
+    def test_agy_159_read_tool(self):
+        """agy 1.5.9 renamed the file tools; the path is in 'Path'."""
+        self.assertIsNone(self.decide('read_file', Path=self.p('src', 'app.py')))
+        self.assertIsNone(self.decide('read_file', Path=self.p('src', 'app.py'), StartLine=2, EndLine=2))
+        self.assertIn('outside', self.decide('read_file', Path=os.path.join(self.tmp.path, 'other.txt')))
+        self.assertIn('protected', self.decide('read_file', Path=self.p('.env.local')))
+        self.assertIn('.agents', self.decide('read_file', Path=self.p('.agents', 'rgs-guard.json')))
+
+    def test_agy_159_write_tools(self):
+        for name, extra in (('write_file', {'Content': 'x'}), ('write_file', {'Content': 'x', 'Append': True}),
+                            ('edit_file', {'Target': 'a', 'Replacement': 'b'})):
+            self.assertIsNone(self.decide(name, Path=self.p('src', 'app.py'), **extra), name)
+            self.assertIsNone(self.decide(name, Path=self.p('tests', 'test_app.py'), **extra), name)
+            self.assertIn('not in the list', self.decide(name, Path=self.p('notes.txt'), **extra), name)
+            self.assertIsNotNone(self.decide(name, Path=os.path.join(self.extra, 'src', 'app.py'), **extra), name)
+            self.assertIn('.agents', self.decide(name, Path=self.p('.agents', 'rgs-guard.json'), **extra), name)
+            self.assertIn('no path argument', self.decide(name, **extra), name)
+            reviewer = dict(self.policy, role='reviewer')
+            self.assertIn('read-only', self.decide(name, reviewer, Path=self.p('src', 'app.py'), **extra), name)
+
+    def test_agy_159_run_command_without_cwd(self):
+        """run_command no longer sends Cwd; the command line alone decides."""
+        self.assertIsNone(self.decide('run_command', CommandLine='Get-ChildItem', WaitMsBeforeAsync=5000,
+                                      toolSummary='List files'))
+        self.assertIsNotNone(self.decide('run_command', CommandLine='python -c "print(1)"',
+                                         WaitMsBeforeAsync=5000, toolSummary='Run'))
+
+    def test_agy_159_new_tools_denied(self):
+        """Tools added after 1.4.0 can run code, reach the network or schedule work: all denied."""
+        calls = [('run_workflow', {'Script': 'print(1)', 'Cwd': self.ws}), ('swarm', {'action': 'start'}),
+                 ('schedule', {'Prompt': 'x', 'DurationSeconds': 1}), ('search_web', {'query': 'x'}),
+                 ('define_subagent', {'Name': 'x', 'EnableWriteTools': True}), ('manage_task', {'Action': 'list'}),
+                 ('ask_question', {'questions': []})]
+        for role in ('implementer', 'reviewer'):
+            policy = dict(self.policy, role=role)
+            for name, args in calls:
+                self.assertIn('not allowed', self.decide(name, policy, **args), f'{role} {name}')
+
     def test_neutral_tools(self):
         for name in ('invoke_subagent', 'send_message', 'manage_subagents', 'finish', 'wait'):
             self.assertIsNone(self.decide(name, Prompt='x'), name)
@@ -165,6 +203,10 @@ class SealedTest(unittest.TestCase):
             ('send_message', {'Message': 'bar'}),
             ('task_boundary', {}),
             ('unknown_tool', {}),
+            ('read_file', {'Path': os.path.join(self.ws, 'a.txt')}),
+            ('write_file', {'Path': os.path.join(self.ws, 'a.txt'), 'Content': 'x'}),
+            ('edit_file', {'Path': os.path.join(self.ws, 'a.txt'), 'Target': 'a', 'Replacement': 'b'}),
+            ('run_workflow', {'Script': 'print(1)'}),
         ]
         for name, args in tools:
             reason = guard.decide(self.policy, {'name': name, 'args': args})

@@ -1,10 +1,16 @@
 """Run one facet review turn: validate inputs, invoke agy in an isolated sealed workspace, and record results.
 
 Usage:
-    python -I facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiability --round <N> --model <M>
+    python -I facet_review.py --plan-file <計畫檔> --lens logic|gaps|verifiability --round <N> --models <M1,M2,...>
                               [--timeout 900] [--session <ID>] [--run-dir <資料夾>] [--repo <專案資料夾>] [--prior-stdin]
 
-Status and Exit Codes:
+--models is the reviewer fallback chain in order of preference (--model is an alias; one model is a chain of one).
+A model is tried only after the one before it failed with timeout, agy_error, empty_output, parse_error or
+schema_error (design D-22). workspace_modified and the errors found before agy runs stop at once. A model that
+ran out of quota, or timed out with a --timeout no larger than this one, is skipped by later calls of the same
+session for SKIP_TTL_S (record: <run-dir>/model-skips.json); when that would skip every model, none is skipped.
+
+Status and Exit Codes (of the last model tried):
     | status             | exit | condition                                                              |
     | ok                 |    0 | Valid verdict obtained                                                 |
     | timeout            |    2 | agy execution timed out                                                |
@@ -14,11 +20,11 @@ Status and Exit Codes:
     | schema_error       |    5 | verdict schema validation failed                                       |
     | workspace_modified |    6 | repo or workspace modified during call (preempts all other post-call)   |
     | secret_suspected   |    7 | Secret suspected in plan; agy not invoked                              |
-    | forbidden_flag     |    8 | Forbidden agy arguments or non-gemini model; agy not invoked           |
+    | forbidden_flag     |    8 | Forbidden agy arguments or a model the reviewer may not use; agy not invoked |
     | plan_too_long      |    9 | Prompt constructed from plan exceeds char limit; agy not invoked       |
     | usage_error        |   10 | Command line/file/prior syntax errors; agy not invoked                  |
 
-只做一次送審，重試與多輪迴圈由 SKILL.md 負責。
+一次送審（一個角度、一輪）；換模型在這裡做，多輪迴圈由 SKILL.md 負責。
 """
 import argparse
 import json
@@ -41,8 +47,94 @@ import rgs_common as rc
 import verdict
 
 
+FALLBACK_STATUSES = ('timeout', 'agy_error', 'empty_output', 'parse_error', 'schema_error')
+SKIPS_FILE = 'model-skips.json'
+SKIP_TTL_S = 2 * 3600
+
+
 class UsageError(Exception):
     pass
+
+
+def parse_models(text):
+    """The comma-separated fallback chain, blanks and repeats removed, order kept."""
+    models = []
+    for part in (text or '').split(','):
+        model = part.strip()
+        if model and model not in models:
+            models.append(model)
+    return models
+
+
+def load_skips(run_dir):
+    try:
+        with open(os.path.join(run_dir, SKIPS_FILE), encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def skip_reason(record, timeout, now):
+    """Why a model that failed earlier in this session is skipped now, or None."""
+    if not isinstance(record, dict):
+        return None
+    try:
+        if now - float(record.get('at', 0)) > SKIP_TTL_S:
+            return None
+        if record.get('reason') == 'quota':
+            return 'quota'
+        if record.get('reason') == 'timeout' and timeout <= int(record.get('timeout_s', 0)):
+            return 'timeout'
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def plan_attempts(models, skips, timeout, now):
+    """Return (models to try, [{model, reason}] skipped, skips_ignored)."""
+    order, skipped = [], []
+    for model in models:
+        reason = skip_reason(skips.get(model), timeout, now)
+        if reason:
+            skipped.append({'model': model, 'reason': reason})
+        else:
+            order.append(model)
+    if not order:
+        # Every model failed earlier; trying the chain again beats stopping without a single call.
+        return list(models), [], True
+    return order, skipped, False
+
+
+def evaluate(result, round_no, plan_text):
+    """Map one agy result to (status, exit_code, detail, review fields)."""
+    review = {'verdict': None, 'findings': [], 'resolved': [], 'coverage': None, 'limitations': None}
+    if result.kind == 'timeout':
+        return 'timeout', 2, result.detail, review
+    if result.kind in ('error', 'quota'):
+        return 'agy_error', 3, result.detail, review
+    if result.kind == 'empty':
+        return 'empty_output', 4, result.detail, review
+    data = result.structured
+    try:
+        if isinstance(data, str):
+            data = verdict.parse_response(data)
+        verdict.validate(data, round_no=round_no)
+    except verdict.VerdictError as e:
+        return e.kind, 5, str(e), review  # 'parse_error' or 'schema_error'
+    findings = []
+    for f in data.get('findings') or []:
+        f_copy = dict(f)
+        f_copy['evidence_found'] = verdict.evidence_found(f.get('evidence', ''), plan_text)
+        findings.append(f_copy)
+    review = {
+        'verdict': data.get('verdict'),
+        'findings': findings,
+        'resolved': (data.get('resolved') or []) if round_no >= 2 else [],
+        'coverage': data.get('coverage'),
+        'limitations': data.get('limitations'),
+    }
+    return 'ok', 0, '', review
 
 
 class FacetArgumentParser(argparse.ArgumentParser):
@@ -95,11 +187,15 @@ def finish_and_exit(
     result,
     started_iso,
     start_time,
+    chain,
 ):
     finished_time = time.time()
     finished_iso = time.strftime('%Y-%m-%dT%H:%M:%S')
     duration_s = round(finished_time - start_time, 2)
     test_double = bool(os.environ.get('RGS_AGY'))
+    models = chain['models']
+    fallback_used = bool(models) and requested_model != models[0]
+    cross_model = not (isinstance(requested_model, str) and requested_model.startswith('claude-'))
 
     if call_dir and os.path.isdir(call_dir):
         meta = {
@@ -113,6 +209,12 @@ def finish_and_exit(
             'requested_model': requested_model,
             'reported_model': reported_model,
             'reported_model_note': 'agy 用戶端解析，伺服器端未確認',
+            'models': models,
+            'attempts': chain['attempts'],
+            'skipped': chain['skipped'],
+            'skips_ignored': chain['skips_ignored'],
+            'fallback_used': fallback_used,
+            'cross_model': cross_model,
             'agy_executable': agy_exec,
             'agy_version': agy_ver,
             'agy': result.summary() if result else None,
@@ -139,6 +241,11 @@ def finish_and_exit(
         'round': round_no,
         'requested_model': requested_model,
         'reported_model': reported_model,
+        'models': models,
+        'attempts': chain['attempts'],
+        'skipped': chain['skipped'],
+        'fallback_used': fallback_used,
+        'cross_model': cross_model,
         'raw_dir': os.path.abspath(call_dir) if call_dir else None,
         'test_double': test_double,
         'detail': detail,
@@ -186,12 +293,13 @@ def main():
     ws = None
     agy_exec = None
     agy_ver = None
+    chain = {'models': [], 'attempts': [], 'skipped': [], 'skips_ignored': False}
 
     parser = FacetArgumentParser(description='Run one facet review turn.')
     parser.add_argument('--plan-file', required=True)
     parser.add_argument('--lens', required=True)
     parser.add_argument('--round', required=True, type=int)
-    parser.add_argument('--model', required=True)
+    parser.add_argument('--models', '--model', dest='models', required=True)
     parser.add_argument('--timeout', type=int, default=900)
     parser.add_argument('--session', default=None)
     parser.add_argument('--run-dir', default=None)
@@ -208,15 +316,18 @@ def main():
             reported_model, call_dir, secret_hits, repo_changes,
             workspace_new_files, guard_denials, repo, repo_before,
             plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-            result, started_iso, start_time,
+            result, started_iso, start_time, chain,
         )
 
     lens = args.lens
     round_no = args.round
-    requested_model = args.model
+    chain['models'] = parse_models(args.models)
+    requested_model = chain['models'][0] if chain['models'] else args.models
     timeout = args.timeout
 
     try:
+        if not chain['models']:
+            raise UsageError(f'no model given: {args.models!r}')
         if lens not in prompt.LENSES:
             raise UsageError(f'unknown lens {lens!r}, expected one of {prompt.LENSES}')
         if round_no < 1:
@@ -253,7 +364,7 @@ def main():
             reported_model, call_dir, secret_hits, repo_changes,
             workspace_new_files, guard_denials, repo, repo_before,
             plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-            result, started_iso, start_time,
+            result, started_iso, start_time, chain,
         )
 
     # 3. Load plan
@@ -270,7 +381,7 @@ def main():
             reported_model, call_dir, secret_hits, repo_changes,
             workspace_new_files, guard_denials, repo, repo_before,
             plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-            result, started_iso, start_time,
+            result, started_iso, start_time, chain,
         )
 
     # 4. Scan secrets
@@ -286,7 +397,7 @@ def main():
             reported_model, call_dir, secret_hits, repo_changes,
             workspace_new_files, guard_denials, repo, repo_before,
             plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-            result, started_iso, start_time,
+            result, started_iso, start_time, chain,
         )
 
     # 5. Prior stdin
@@ -305,7 +416,7 @@ def main():
                 reported_model, call_dir, secret_hits, repo_changes,
                 workspace_new_files, guard_denials, repo, repo_before,
                 plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-                result, started_iso, start_time,
+                result, started_iso, start_time, chain,
             )
         rc.write_text(os.path.join(call_dir, 'prior.json'), json.dumps(prior, ensure_ascii=False, indent=2))
 
@@ -330,7 +441,7 @@ def main():
             reported_model, call_dir, secret_hits, repo_changes,
             workspace_new_files, guard_denials, repo, repo_before,
             plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-            result, started_iso, start_time,
+            result, started_iso, start_time, chain,
         )
     except ValueError as e:
         status = 'usage_error'
@@ -342,7 +453,7 @@ def main():
             reported_model, call_dir, secret_hits, repo_changes,
             workspace_new_files, guard_denials, repo, repo_before,
             plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-            result, started_iso, start_time,
+            result, started_iso, start_time, chain,
         )
 
     rc.write_text(os.path.join(call_dir, 'prompt.md'), prompt_text)
@@ -358,7 +469,23 @@ def main():
         schema_path = os.path.join(call_dir, 'schema.json')
         rc.write_text(schema_path, json.dumps(schema, ensure_ascii=False, indent=2))
 
-    # 8. Find agy
+    # 8. Models and agy
+    for model in chain['models']:
+        try:
+            rc.check_model(model, 'reviewer')
+        except rc.RgsError as e:
+            status = 'forbidden_flag'
+            exit_code = 8
+            detail = str(e)
+            finish_and_exit(
+                status, exit_code, detail, verdict_val, findings, resolved,
+                coverage, limitations, lens, round_no, requested_model,
+                reported_model, call_dir, secret_hits, repo_changes,
+                workspace_new_files, guard_denials, repo, repo_before,
+                plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
+                result, started_iso, start_time, chain,
+            )
+
     try:
         prefix = rc.find_agy()
         agy_exec = prefix[-1]
@@ -372,95 +499,87 @@ def main():
             reported_model, call_dir, secret_hits, repo_changes,
             workspace_new_files, guard_denials, repo, repo_before,
             plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-            result, started_iso, start_time,
+            result, started_iso, start_time, chain,
         )
 
     agy_ver = get_agy_version()
 
-    # 9. Repo snapshot before
+    # 9. Repo snapshot before; models skipped after failing earlier in this session
     repo_before = rc.snapshot(repo)
+    skips = load_skips(run_dir)
+    order, chain['skipped'], chain['skips_ignored'] = plan_attempts(chain['models'], skips, timeout, time.time())
+    requested_model = order[0]
 
     # 10. Isolated workspace
     ws = rc.isolated_workspace('rgs_facet_', sealed=True)
     try:
         ws_before = rc.snapshot(ws, ignore=('.agents/**',))
 
-        # 11. Call agy
-        save_prefix = os.path.join(call_dir, 'agy')
-        try:
-            result = rc.call_agy(
-                prompt=prompt_text,
-                cwd=ws,
-                model=requested_model,
-                schema_path=schema_path,
-                timeout_s=timeout,
-                grace_s=15,
-                save_as=save_prefix,
-                role='reviewer',
-            )
-        except rc.RgsError as e:
-            status = 'forbidden_flag'
-            exit_code = 8
-            detail = str(e)
-            result = None
+        # 11. Call agy with each model in turn until one gives a valid verdict
+        for i, model in enumerate(order):
+            requested_model = model
+            save_prefix = os.path.join(call_dir, 'agy' if i == 0 else f'agy-{i + 1}')
+            attempt_started = time.time()
+            try:
+                result = rc.call_agy(
+                    prompt=prompt_text,
+                    cwd=ws,
+                    model=model,
+                    schema_path=schema_path,
+                    timeout_s=timeout,
+                    grace_s=15,
+                    save_as=save_prefix,
+                    role='reviewer',
+                )
+            except rc.RgsError as e:
+                status = 'forbidden_flag'
+                exit_code = 8
+                detail = str(e)
+                result = None
+                break
 
-        if result is not None:
+            # 12. Status of this attempt
             reported_model = result.reported_model
-            # 12. Determine status based on result.kind
-            if result.kind == 'timeout':
-                status = 'timeout'
-                exit_code = 2
-                detail = result.detail
-            elif result.kind in ('error', 'quota'):
-                status = 'agy_error'
-                exit_code = 3
-                detail = result.detail
-            elif result.kind == 'empty':
-                status = 'empty_output'
-                exit_code = 4
-                detail = result.detail
-            elif result.kind == 'ok':
-                data = result.structured
-                if isinstance(data, str):
-                    try:
-                        data = verdict.parse_response(data)
-                    except verdict.VerdictError as e:
-                        status = e.kind  # 'parse_error'
-                        exit_code = 5
-                        detail = str(e)
+            status, exit_code, detail, review = evaluate(result, round_no, plan_text)
+            verdict_val = review['verdict']
+            findings = review['findings']
+            resolved = review['resolved']
+            coverage = review['coverage']
+            limitations = review['limitations']
+            chain['attempts'].append({
+                'model': model,
+                'status': status,
+                'detail': detail,
+                'reported_model': reported_model,
+                'duration_s': round(time.time() - attempt_started, 2),
+                'raw': os.path.basename(save_prefix),
+            })
 
-                if status != 'parse_error':
-                    try:
-                        verdict.validate(data, round_no=round_no)
-                    except verdict.VerdictError as e:
-                        status = e.kind  # 'schema_error'
-                        exit_code = 5
-                        detail = str(e)
+            # 13. Snapshot changes comparison; a modified workspace is never retried
+            repo_changes = rc.snapshot_changes(repo_before, rc.snapshot(repo))
+            workspace_new_files = rc.snapshot_changes(ws_before, rc.snapshot(ws, ignore=('.agents/**',)))
+            if repo_changes or workspace_new_files:
+                status = 'workspace_modified'
+                exit_code = 6
+                detail = detail or 'workspace or repo modified during review'
+                break
 
-                if status not in ('parse_error', 'schema_error'):
-                    status = 'ok'
-                    exit_code = 0
-                    detail = ''
-                    verdict_val = data.get('verdict')
-                    coverage = data.get('coverage')
-                    limitations = data.get('limitations')
-                    if round_no >= 2:
-                        resolved = data.get('resolved') or []
-                    else:
-                        resolved = []
-                    findings = []
-                    for f in data.get('findings') or []:
-                        f_copy = dict(f)
-                        f_copy['evidence_found'] = verdict.evidence_found(f.get('evidence', ''), plan_text)
-                        findings.append(f_copy)
-
-        # 13. Snapshot changes comparison
-        repo_changes = rc.snapshot_changes(repo_before, rc.snapshot(repo))
-        workspace_new_files = rc.snapshot_changes(ws_before, rc.snapshot(ws, ignore=('.agents/**',)))
-        if repo_changes or workspace_new_files:
-            status = 'workspace_modified'
-            exit_code = 6
-            detail = detail or 'workspace or repo modified during review'
+            if status == 'ok':
+                skips.pop(model, None)
+                break
+            if result.kind == 'quota':
+                skips[model] = {'reason': 'quota', 'at': time.time()}
+            elif status == 'timeout':
+                skips[model] = {'reason': 'timeout', 'timeout_s': timeout, 'at': time.time()}
+            if status not in FALLBACK_STATUSES:
+                break
+        if status in FALLBACK_STATUSES and len(chain['attempts']) > 1:
+            tried = ', '.join(f"{a['model']} {a['status']}" for a in chain['attempts'])
+            detail = f'every model failed ({tried}); last: {detail}'
+        try:
+            rc.write_text(os.path.join(run_dir, SKIPS_FILE), json.dumps(skips, ensure_ascii=False, indent=2))
+        except OSError:
+            pass
 
     finally:
         # 14. Guard log and cleanup
@@ -479,7 +598,7 @@ def main():
         reported_model, call_dir, secret_hits, repo_changes,
         workspace_new_files, guard_denials, repo, repo_before,
         plan_file, plan_chars, prompt_chars, agy_exec, agy_ver,
-        result, started_iso, start_time,
+        result, started_iso, start_time, chain,
     )
 
 

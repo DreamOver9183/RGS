@@ -6,7 +6,7 @@
 | :-- | :-- |
 | 版本 | v1（修訂歷史見文末） |
 | 需求 | `docs/rgs/requirements.md` |
-| 查證基準 | agy 1.4.0（Windows 11，2026-10-17）；`skills/rgs-core/references/agy-cli.md`；Facet 的預檢結果與設計（`docs/origins/facet/`）；Claude Code 官方文件 skills、hooks |
+| 查證基準 | agy 1.4.0（Windows 11，2026-10-17），D-23 另以 agy 1.5.9（2026-11-15）實測，D-24 以 agy 1.5.12／1.5.13（2026-11-21）實測；`skills/rgs-core/references/agy-cli.md`；Facet 的預檢結果與設計（`docs/origins/facet/`）；Claude Code 官方文件 skills、hooks |
 
 M1–M6 依序對應使用者核准計畫中的 F1–F6。
 
@@ -31,7 +31,7 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | rgs-core 的 agy 呼叫點 | 全部經過 `rgs_common.call_with_fallback` → `call_agy`。`rgs.py` 的 implement／fix 傳 `mode='accept-edits'`，fix 另外傳 `conversation`；`review.py`、`batch.py`、`digest.py` 不傳 `mode`、`conversation`、`add_dirs` | R-4 的角色檢查：實作角色只有 implement／fix，其餘都是審查角色 |
 | `call_agy` 的逾時 | `subprocess.run(..., timeout=timeout_s + 180)`，逾時時只結束 agy 本身 | R-4(a) 改用 `Popen` 並終止程序樹；外部終止的緩衝時間要能設定（rgs-facet 用 15 秒） |
 | rgs-core 測試用的模型名稱 | `test_common.py` 用 `m1`、`m2`，`test_flow.py`、`test_github.py` 用 `m-impl`、`m-review` | R-4(b) 要求 `gemini-` 開頭後，這些測試資料要改名 |
-| guard 的角色 | `implementer` 可寫清單內的檔案；`reviewer` 放行讀檔、唯讀 `run_command`、`invoke_subagent`、`send_message` 等中性工具；未知工具一律拒絕，例外也拒絕 | R-5 新增 `sealed`：只放行 `finish`、`wait` |
+| guard 的角色 | `implementer` 可寫清單內的檔案；`reviewer` 放行讀檔、唯讀 `run_command`、`invoke_subagent`、`send_message` 等中性工具；未知工具一律拒絕，例外也拒絕（工具名稱隨 agy 版本改變，1.5.9 的新名稱見 D-23） | R-5 新增 `sealed`：只放行 `finish`、`wait` |
 | `isolated_workspace` | 建立空的暫存資料夾、寫入指定檔案、裝上 reviewer guard；batch 與 digest 使用 | R-5 加選用參數，預設行為不變 |
 | `doctor.py` | 一定要有 git repo（沒有就 fail）；`--flow main\|pr` | R-6 新增 `--flow facet` 與 `--model` |
 | `secret_scan.py` | 只掃 staged 內容或檔案；內建 8 種樣式，可由 profile 追加 | R-3 新增 `scan_text(text)`；Facet 原本的樣式長度門檻和 rgs-core 不同，以 rgs-core 為準 |
@@ -57,12 +57,12 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | D-6 | `resolved` 在 schema 選填，「第二輪起必填」由 `validate(..., round_no)` 檢查；`facet_review.py` 第二輪起寫出把 `resolved` 設為必填的暫存 schema 給 agy（原 Facet D-2） | 一份 schema 供每一輪使用 | 2026-10-17 |
 | D-7 | `VerdictError`、`PromptError` 帶 `kind`，直接對應 `facet_review.py` 的 status（原 Facet D-3） | 不用再翻譯錯誤種類 | 2026-10-17 |
 | D-8 | 審查者唯讀：`isolated_workspace(..., sealed=True)` 裝上 `sealed` guard（只放行 `finish`、`wait`），加上呼叫前後的 repo 快照比對與工作區新檔檢查（原 Facet D-4） | 計畫放在 prompt 裡，審查者不需要任何工具；hook 實測有效且 fail-closed。改放在 rgs-core，batch／digest 日後也能用 | 2026-10-17 |
-| D-9 | `REVIEWER_MODEL = gemini-4-argon-high`；rgs-facet 直接呼叫 `call_agy`，不走 `call_with_fallback`（原 Facet D-5） | Facet 的原則是失敗不偷換模型；Gemini 4 的額度和 RGS 實作用的 3.8 分開 | 2026-10-17 |
+| D-9 | （已由 D-22 取代）`REVIEWER_MODEL = gemini-4-argon-high`；rgs-facet 直接呼叫 `call_agy`，不走 `call_with_fallback`（原 Facet D-5） | Facet 的原則是失敗不偷換模型；Gemini 4 的額度和 RGS 實作用的 3.8 分開 | 2026-10-17 |
 | D-10 | （已由 D-21 取代）`AGY_TIMEOUT = 300` 秒：`--print-timeout 300s`，外部在 300 + 15 秒時終止程序樹；Claude 呼叫 Bash 時 `timeout` 設 360,000 毫秒（原 Facet D-6） | 預檢最慢 155 秒 | 2026-10-17 |
 | D-11 | 計畫放在 `-p` 參數；整個 prompt 超過 30,000 字元時回報 `plan_too_long`，不送出（原 Facet D-7） | 最快最便宜；Windows 命令列上限約 32K | 2026-10-17 |
 | D-12 | rgs-facet 的原始輸出放在系統暫存目錄 `<temp>/rgs-facet/<session>/`，路徑寫在計畫附錄；`roles.md` 規則 7 加註例外 | Plan 模式只能寫計畫檔；rgs-facet 要能用在沒有 `.rgs/` 的專案。沒採用：寫進 `.rgs/runs/`（會在非 RGS 專案建立 `.rgs/`） | 2026-10-17 |
 | D-13 | `facet_review.py` 的 status 與 exit code：`ok` 0、`timeout` 2、`agy_error` 3、`empty_output` 4、`parse_error`／`schema_error` 5、`workspace_modified` 6、`secret_suspected` 7、`forbidden_flag` 8、`plan_too_long` 9、`usage_error` 10（原 Facet PLAN §4.3 與 D-12）。環境檢查改由 `doctor.py --flow facet` 負責，不再有 `--self-check` | 沿用已核准的表；argparse 預設的 exit 2 會和 `timeout` 撞號，所以用法錯誤自行處理 | 2026-10-17 |
-| D-14 | agy 參數依角色檢查（`call_agy` 新增 `role`，預設 `reviewer`；implement／fix 傳 `implementer`）。所有角色禁止 `--dangerously-skip-permissions`、`--yolo`、`-i`、`--prompt-interactive`、`--remote-control`、`--sandbox`；審查角色另外禁止 `--mode`、`--add-dir`、`--conversation`、`-c`、`--continue`；實作角色的 `--mode` 只能是 `accept-edits`。`--model` 必傳且以 `gemini-` 開頭。違反時不呼叫 agy，丟出 `RgsError` | 參數由程式組出來，這是防止程式改錯的最後一道關；模型前綴則防止 profile 設成 Claude（使用者的 agy 預設就是 Claude） | 2026-10-17 |
+| D-14 | agy 參數依角色檢查（`call_agy` 新增 `role`，預設 `reviewer`；implement／fix 傳 `implementer`）。所有角色禁止 `--dangerously-skip-permissions`、`--yolo`、`-i`、`--prompt-interactive`、`--remote-control`、`--sandbox`；審查角色另外禁止 `--mode`、`--add-dir`、`--conversation`、`-c`、`--continue`；實作角色的 `--mode` 只能是 `accept-edits`。`--model` 必傳且以 `gemini-` 開頭（2026-11-07 起審查角色的模型前綴由 D-22 放寬）。違反時不呼叫 agy，丟出 `RgsError` | 參數由程式組出來，這是防止程式改錯的最後一道關；模型前綴則防止 profile 設成 Claude（使用者的 agy 預設就是 Claude） | 2026-10-17 |
 | D-15 | 終止程序樹：`Popen` 啟動；Windows 用 `CREATE_NEW_PROCESS_GROUP`，逾時時 `taskkill /PID <pid> /T /F`；POSIX 用 `start_new_session=True`，逾時時 `os.killpg` 先送 SIGTERM，10 秒後 SIGKILL。`call_agy` 新增 `grace_s`（預設 180，維持現行行為） | agy 會在背景重試、消耗額度（agy issue #594）；只結束父程序會留下子程序 | 2026-10-17 |
 | D-16 | 測試替身一律用 `RGS_AGY`；rgs-facet 的測試共用 `rgs-core/tests/fake_agy.py`，需要的新情境加在那裡 | 不維護第二個替身；原 Facet 的 `FACET_AGY_BIN` 取消 | 2026-10-17 |
 | D-17 | 不另寫名稱衝突檢查腳本：`install.ps1` 已不覆蓋非本 repo 的資料夾，再加上 `~/.claude/commands/rgs-facet.md` 的警告 | 原 Facet M6 的大部分工作已經存在 | 2026-10-17 |
@@ -70,6 +70,9 @@ M1–M6 依序對應使用者核准計畫中的 F1–F6。
 | D-19 | 里程碑依序執行，同一時間只有一個 Gemini；相依的里程碑在前一個未合併時堆疊 | agy 同時多個會卡住（agy issue #573）；所有里程碑共用本檔的狀態 | 2026-10-17 |
 | D-20 | M1 的搬檔方式：`prepare` 之後，Claude 把 Facet 已合併的 M1／M2 檔案與 M3 worktree 的 3 個檔案原樣複製進任務 worktree（不改內容），所有調整交給 Gemini；Claude 審查時讀完全部內容 | 讓 Gemini 重打上千行既有程式容易出錯；原樣複製不算撰寫產品程式碼。M3 的檔案從沒審過，所以要全文審查 | 2026-10-17 |
 | D-21 | 取代 D-10：`AGY_TIMEOUT = 900` 秒（`facet_review.py` 的 `--timeout` 預設同步改為 900）；SKILL.md 一律用 Bash 的 `run_in_background` 送審，不再設前景 `timeout`；`timeout` 不自動重試，停下來讓使用者選擇「逾時加倍重跑這個角度一次」「不經審查交付」或「中止」；審查 prompt 改為明說用 `finish` 交出結果 | 2026-10-25 起 Gemini 4 Argon High 對同一份 prompt 的思考量變成 3–10 倍，實測一次 314–485 秒，300 秒必定逾時，原本兩次審查共 5 次嘗試（含重試）全部逾時；Bash 前景上限 10 分鐘，改成 540 秒只剩約 10% 餘裕。舊 prompt 的「不要使用任何工具」和 `finish` 矛盾，模型有時先用文字輸出，被 agy 要求後再重產一次。沒採用：改用 `gemini-4-argon-medium`（34 秒，但漏掉全部真問題）、`--effort`（和模型 ID 的強度後綴是同一個設定） | 2026-10-25 |
+| D-22 | 取代 D-9，放寬 D-14 的模型前綴：rgs-facet 的 `REVIEWER_MODELS = gemini-4-argon-high,gemini-3.8-flash-high,gpt-oss-120b-medium,claude-opus-5-5-high`，`facet_review.py --models` 依序替補。一個模型回 `timeout`、`agy_error`、`empty_output`、`parse_error`、`schema_error` 就換下一個；`workspace_modified` 與呼叫前的錯誤立刻結束；腳本回非 `ok` 時 SKILL.md 不再重試（取消「同模型重試 1 次」）。額度用完或逾時的模型寫進 `<run-dir>/model-skips.json`，同一個 session 2 小時內先跳過（逾時只在 `--timeout` 不大於當時的值時跳過），全部都會被跳過時就不跳過。模型前綴改為依角色：`implementer` 只能 `gemini-`，`reviewer` 可以 `gemini-`、`gpt-oss-`、`claude-`。輸出加上 `models`、`attempts`、`skipped`、`fallback_used`、`cross_model`；`cross_model` 為 `false`（Claude 審查）時摘要必須寫明不是跨模型審查 | 使用者要求：Gemini 4 塞車或額度用完時，三個角度的審查不該整個停下來。替補順序由使用者指定；GPT-OSS 在 agy 只有 medium（`--effort high` 會被拒絕），所以用 `gpt-oss-120b-medium`。換模型放在腳本裡而不是 SKILL.md，結果可測試，也不用多花 Claude 的回合。跳過紀錄避免 Gemini 4 每個角度都先逾時 900 秒。實作模型維持只有 Gemini，保留「Gemini 寫、Claude 審」的分工。沒採用：同模型先重試再換（塞車時多等一輪、逾時時多等 900 秒）；在 SKILL.md 由 Claude 換模型（狀態容易記錯、多一個回合） | 2026-11-07 |
+| D-23 | 適配 agy 1.5.9 與 Gemini 4 Hydrogen：(a) guard 新舊檔案工具名稱都認得：`READ_TOOLS` 加 `read_file`，`WRITE_TOOLS` 加 `write_file`、`edit_file`（路徑參數 `Path`），1.5.9 新增的 `run_workflow`、`swarm`、`schedule`、`search_web`、`define_subagent`、`manage_task`、`ask_question` 維持拒絕；(b)（已由 D-24 修改）修改 D-22 的清單：`REVIEWER_MODELS = gemini-4-hydrogen-high,gemini-4-argon-high,gemini-3.8-flash-high,gpt-oss-120b-medium,claude-opus-5-5-high`；(c) 審查 prompt 要求 `evidence` 只放一段連續的原文；(d) 實作、合併閘門審查、batch、digest 的預設模型不變（`gemini-3.8-flash-*`），`AGY_TIMEOUT` 維持 900 | (a) agy 1.5.9 把檔案工具改名，舊 guard 全部拒絕，任何模型都無法實作或讀檔審查；只加實測到的三個名稱，不用 `read_` 這類前綴比對，避免放行日後出現的連網工具。(b) Hydrogen High 一次審查 40–55 秒就交出有效 verdict，Argon High 要 5–8 分鐘；Hydrogen 和 3.8 Flash 共用額度，所以額度另計的 Argon 排第二。沒採用 `-xhigh` 當預設：約 2 分鐘、輸出 token 約 3 倍，需要時改一行即可。(c) Hydrogen 會把多段引用接在一起，`evidence_found` 全是 `false`；改 prompt 後 8 條都對得上。沒採用：放寬 `evidence_found` 的比對（會讓「引用不存在的內容」更難發現）。(d) Hydrogen 當實作者只跑過一次小任務的 prepare → implement → check（29 秒、無拒絕），修正輪與里程碑大小的任務還沒驗證；要用時在 profile 的 `agy.implementer.models` 指定即可；Argon 仍在清單裡，逾時上限要留給它 | 2026-11-15 |
+| D-24 | 適配 agy 1.5.12／1.5.13 與 Gemini 4 Neon：(a) 修改 D-23(b) 的清單：`REVIEWER_MODELS = gemini-4-neon-high,gemini-4-hydrogen-xhigh,gemini-4-argon-high,gemini-3.8-flash-high,gpt-oss-120b-medium,claude-opus-5-5-high`；(b) guard 不變：1.5.13 的檔案工具仍是 `read_file`、`write_file`、`edit_file`；(c) 實作、合併閘門審查、batch、digest 的預設模型不變（`gemini-3.8-flash-*`），`AGY_TIMEOUT` 維持 900；(d) `doctor.py` 的版本提示加上 1.5.13 | (a) 使用者指定前兩順位：Neon High、Hydrogen XHigh。實測（同一份約 1,500 字元的計畫）Neon High 106–131 秒、輸出 1.3–1.6 萬 token，Hydrogen XHigh 107 秒，都經由 `finish` 交出有效 verdict，15 條 finding 的 `evidence_found` 全是 `true`，sealed guard 無拒絕、快照無變動；900 秒的上限仍留給第三順位的 Argon。Neon 和 Hydrogen、3.8 Flash 應同屬「Gemini Models」額度（`/usage` 沒有 Neon 自己的一池），額度用完時會一起失效，所以額度另計的 Argon 排第三。(b) 用真的 agy 跑審查者與實作者的最小呼叫（`gemini-4-neon-high`），guard 紀錄的工具名稱與 1.5.9 相同，判定正確。(c) Neon 當實作者只跑過最小呼叫（約 40 秒、只改了清單內的檔案），里程碑大小的任務還沒驗證；要用時在 profile 的 `agy.implementer.models` 指定即可 | 2026-11-21 |
 
 ## 架構
 
@@ -261,6 +264,9 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 13. 文件沒寫明的平台行為（例如 hook 指令會不會代入某個變數）要先實測再設計，不要假設；用拋棄式的專案層 skill 加無頭 `claude -p` 就能驗證（出處：本機驗收 C2）。
 14. 修正指示裡的判斷規則，送出前先用真與假的案例清單模擬一遍；PR #7 連續兩輪 major 都是規則本身的漏洞（出處：PR #7 fix-1、fix-2）。
 15. 外部模型的耗時與思考量，可能在 agy 和模型 ID 都沒變的情況下改變：逾時上限要留足餘裕，逾時後不要用同樣設定重試；排查時拿同一份 prompt 重跑對照，看 output_tokens，不要只看耗時（出處：2026-10-25 rgs-facet 審查逾時）。
+16. 使用者指定的模型名稱先用 `agy models` 與一次最小呼叫確認存在，再寫進設定：GPT-OSS 在 agy 只有 medium，「GPT-OSS high」不存在（出處：2026-11-07 替補模型）。
+17. agy 升級後不能只跑 `doctor.py` 與 rgs-facet：sealed 審查不用檔案工具，測不出工具改名。每次升級都用真的 agy 各跑一次審查者（讀檔、嘗試寫檔）與實作者（改清單內、嘗試改清單外）的最小呼叫，對照 `rgs-guard.log` 的工具名稱（出處：2026-11-15 agy 1.5.9 的檔案工具改名）。
+18. agy 會自己在背景升版，同一段實測前後的版本可能不同（2026-11-21 從 1.5.12 變成 1.5.13）：實測結果以 `meta.json` 的 `agy_version` 為準，版本變了就重跑工具實測（出處：2026-11-21 Neon 實測）。
 
 ## 修訂歷史
 
@@ -276,3 +282,6 @@ rgs-facet 的腳本以 `os.path.join(os.path.dirname(os.path.abspath(__file__)),
 | v1.7 | 2026-10-18 | 本機驗收紀錄；M7 已合併（PR #7）；教訓 13–14 |
 | v1.8 | 2026-10-18 | 發佈 v1.0.0 |
 | v1.9 | 2026-10-25 | rgs-facet 審查逾時：D-21 取代 D-10；教訓 15 |
+| v1.10 | 2026-11-07 | rgs-facet 替補模型：D-22 取代 D-9、放寬 D-14 的模型前綴；教訓 16 |
+| v1.11 | 2026-11-15 | 適配 agy 1.5.9 與 Gemini 4 Hydrogen：D-23（guard 認得新的檔案工具名稱、Hydrogen 排進替補清單第一順位、evidence 引用規則）；教訓 17 |
+| v1.12 | 2026-11-21 | 適配 agy 1.5.12／1.5.13 與 Gemini 4 Neon：D-24（替補清單改為 Neon High → Hydrogen XHigh → Argon High → …）；教訓 18 |

@@ -90,19 +90,47 @@ class DoctorFacetTest(unittest.TestCase):
         self.assertEqual(check['status'], 'fail')
         self.assertIn('not listed: gemini-4-argon', check['detail'])
 
-    def test_facet_non_gemini_model(self):
-        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--model', 'claude-opus-5-5', '--quick', '--json'], self.folder)
+    def test_facet_invalid_model_prefix(self):
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--model', 'opus-5-5', '--quick', '--json'], self.folder)
         self.assertEqual(code, 1, out)
         check = next(c for c in data['checks'] if c['check'] == 'model')
         self.assertEqual(check['status'], 'fail')
-        self.assertIn("must start with 'gemini-'", check['detail'])
+        self.assertIn('invalid model opus-5-5', check['detail'])
+        self.assertIn('gemini-', check['detail'])
 
     def test_facet_missing_model(self):
         code, data, out = run_script('doctor.py', ['--flow', 'facet', '--quick', '--json'], self.folder)
         self.assertEqual(code, 1, out)
         check = next(c for c in data['checks'] if c['check'] == 'model')
         self.assertEqual(check['status'], 'fail')
-        self.assertIn('--model <M> is required', check['detail'])
+        self.assertIn('--models <M1,M2,...> is required', check['detail'])
+
+    def test_facet_model_chain_ok(self):
+        chain = ('gemini-4-neon-high,gemini-4-hydrogen-xhigh,gemini-4-argon-high,gemini-3.8-flash-high,'
+                 'gpt-oss-120b-medium,claude-opus-5-5-high')
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--models', chain, '--quick', '--json'], self.folder)
+        self.assertEqual(code, 0, out)
+        checks = {c['check']: c for c in data['checks']}
+        self.assertEqual(checks['model']['status'], 'ok')
+        self.assertEqual(checks['agy models']['status'], 'ok')
+
+    def test_facet_chain_with_unlisted_fallback_warns(self):
+        env = {'FAKE_AGY_MODELS': 'gemini-4-argon-high;gemini-3.8-flash-high'}
+        chain = 'gemini-4-argon-high,gemini-3.8-flash-high,gpt-oss-120b-high'
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--models', chain, '--quick', '--json'],
+                                     self.folder, extra_env=env)
+        self.assertEqual(code, 0, out)
+        check = next(c for c in data['checks'] if c['check'] == 'agy models')
+        self.assertEqual(check['status'], 'warn')
+        self.assertIn('not listed: gpt-oss-120b-high', check['detail'])
+
+    def test_facet_chain_with_no_listed_model_fails(self):
+        env = {'FAKE_AGY_MODELS': 'gemini-4-argon-high'}
+        code, data, out = run_script('doctor.py', ['--flow', 'facet', '--models', 'gemini-9-x,claude-x', '--quick', '--json'],
+                                     self.folder, extra_env=env)
+        self.assertEqual(code, 1, out)
+        check = next(c for c in data['checks'] if c['check'] == 'agy models')
+        self.assertEqual(check['status'], 'fail')
 
     def test_facet_with_init_exits_2(self):
         code, data, out = run_script('doctor.py', ['--flow', 'facet', '--init'], self.folder)

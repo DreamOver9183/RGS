@@ -34,7 +34,7 @@
 | Claude（主對話） | 釐清需求、寫規格與修正指示、審查 Gemini 的 diff、裁決審查意見、維護知識庫 | 不直接改產品程式碼 |
 | Gemini（agy） | 依規格實作、依修正指示修改 | 不能跑 shell 或 git、不能改規格以外的檔案、不能讀機密檔 |
 | agy 審查者 | 開新對話、唯讀，從安全、正確性、架構、規格四個面向平行審查 | 不能寫任何檔案 |
-| agy 計畫審查者（rgs-facet） | 在空的暫存工作區、只能交回結果（sealed guard），從 logic、gaps、verifiability 三個角度審查計畫 | 不能讀寫任何檔案 |
+| agy 計畫審查者（rgs-facet） | 在空的暫存工作區、只能交回結果（sealed guard），從 logic、gaps、verifiability 三個角度審查計畫；優先用 Gemini，失敗時依序改用替補模型 | 不能讀寫任何檔案 |
 | Claude sub-agent | 跑 agy、跑測試、更新文件、commit、開 PR | 不修程式碼，失敗就停下回報 |
 
 為什麼這樣分工：Gemini 便宜、能長時間寫程式，但不能執行建置或測試，偶爾會寫錯或越界；Claude 的強項是把需求講清楚和把關品質。所以 Claude 只寫規格和審查，Gemini 能改哪些檔案由 hook 強制限制，而不只是寫在 prompt 裡請它遵守。
@@ -217,10 +217,10 @@ Claude 會依序：
 
 ## 教學三：用 /rgs-facet 審查計畫
 
-適合在動手實作前，希望由另一家模型（Gemini）對實作計畫進行嚴格檢驗時使用。
+適合在動手實作前，希望由另一家模型（優先 Gemini）對實作計畫進行嚴格檢驗時使用。
 
 > [!IMPORTANT]
-> **送審同意與資料隱私**：執行審查會把計畫全文透過 Antigravity CLI 送到 Google（Gemini）。當你明確輸入 `/rgs-facet` 或明確要求跨模型審查時，視為同意送審；若是 Claude 依 description 自行判斷載入，在第一次送審前會用一句話向你確認：「將把計畫全文送到 Gemini（Google），可以嗎？」。
+> **送審同意與資料隱私**：執行審查會把計畫全文透過 Antigravity CLI 送到 Google 的 Antigravity 服務，由替補清單中的模型（Gemini、GPT-OSS 或 Claude）審查。當你明確輸入 `/rgs-facet` 或明確要求跨模型審查時，視為同意送審；若是 Claude 依 description 自行判斷載入，在第一次送審前會用一句話向你確認：「將把計畫全文經由 agy 送到 Google 的 Antigravity 審查，可以嗎？」。
 
 **1. 啟動與起草**
 
@@ -230,7 +230,7 @@ Claude 會依序：
 
 Claude 會依序：
 1. 進入 Plan 模式（若尚未進入）。
-2. 進行環境快速檢查：`python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL> --quick`。
+2. 進行環境快速檢查：`python -I <core>/scripts/doctor.py --flow facet --models <REVIEWER_MODELS> --quick`。
 3. 閱讀程式碼與文件（偵察），釐清不明確之處（用 AskUserQuestion 一次問完）。
 4. 在 Plan 模式計畫檔中起草計畫 v1（包含目標、步驟、驗收條件、proof 指令、風險與假設清單）。末尾加上 `<!-- facet:appendix -->` 標記（送審時會被自動截除，附錄不會送給審查者）。
 
@@ -241,7 +241,7 @@ Claude 會依序：
 - `gaps`：檢查缺少的情境、遺漏的邊界條件與未定義的錯誤處理
 - `verifiability`：檢查步驟是否具備可驗證性與對應的 proof 指令
 
-每個角度單次耗時約 5–8 分鐘（預設模型 `gemini-4-argon-high`，2026-10-25 實測；之前約 1–3 分鐘），送審在背景執行。第二輪起會帶入上一輪該角度的處置 JSON，讓審查者確認先前提出的問題是否已被修復。
+每個角度單次耗時約 2 分鐘（第一順位 `gemini-4-neon-high`，2026-11-21 在 agy 1.5.13 實測 106–131 秒；第二順位 `gemini-4-hydrogen-xhigh` 約 105 秒）；換到更後面的替補模型時可能更久（`gemini-4-argon-high` 約 5–8 分鐘），送審在背景執行。第二輪起會帶入上一輪該角度的處置 JSON，讓審查者確認先前提出的問題是否已被修復。
 
 **3. 裁決與修訂**
 
@@ -258,18 +258,30 @@ Claude 會依序：
 
 **參數設定**
 
-參數位於 `skills/rgs-facet/SKILL.md` 開頭（`REVIEWER_MODEL`、`MAX_ROUNDS`、`AGY_TIMEOUT` 等）。更換模型只需修改該檔的一行（預設為 `gemini-4-argon-high`）。升級或更換模型後，建議先執行：
+參數位於 `skills/rgs-facet/SKILL.md` 開頭（`REVIEWER_MODELS`、`MAX_ROUNDS`、`AGY_TIMEOUT` 等）。`REVIEWER_MODELS` 是依序替補的模型清單，預設為：
+
+| 順序 | 模型 ID | 說明 |
+| :-- | :-- | :-- |
+| 1 | `gemini-4-neon-high` | Gemini 4 Neon（High），agy 1.5.12 起提供 |
+| 2 | `gemini-4-hydrogen-xhigh` | Gemini 4 Hydrogen（XHigh），agy 1.5.9 起提供；和 Neon 共用「Gemini Models」額度，Neon 額度用完時它通常也用完 |
+| 3 | `gemini-4-argon-high` | Gemini 4 Argon（High），額度自己一池 |
+| 4 | `gemini-3.8-flash-high` | Gemini 3.8 Flash（High），也算在「Gemini Models」額度 |
+| 5 | `gpt-oss-120b-medium` | agy 內建的 GPT-OSS 120B；agy 只提供 medium，沒有 high |
+| 6 | `claude-opus-5-5-high` | agy 內建的 Claude Opus 5.5（High）；和起草計畫的 Claude 同一家，**不算跨模型審查**，摘要會標明 |
+
+更換模型或順序只需修改那一行；每個 ID 都必須以 `gemini-`、`gpt-oss-` 或 `claude-` 開頭，並出現在 `agy models` 的清單中。升級或更換模型後，建議先執行：
 
 ```bash
-python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
+python -I <core>/scripts/doctor.py --flow facet --models <REVIEWER_MODELS>
 ```
 
 **異常與重試**
 
-- 審查結果的 `status` 不是 `ok` 就不算核准，絕不自動更換模型。
-- 逾時（`timeout`，`AGY_TIMEOUT` 預設 900 秒）不自動重試，因為同樣設定重跑幾乎一定再逾時。Claude 會停下來問你：要把逾時加倍、重跑這個角度一次，不經跨模型審查直接交付，還是中止。
-- 若遇到 agy 錯誤（`agy_error`）、無結構化輸出（`empty_output`）、解析或驗證錯誤（`parse_error`、`schema_error`），同一模型最多自動重試 1 次；仍失敗則停止迴圈。
-- 若偵測到改檔（`workspace_modified`），**絕不重試**，立即停止並告訴你哪些檔案被變動。
+- 審查結果的 `status` 不是 `ok` 就不算核准。
+- **自動換模型**：某個模型逾時（`timeout`，`AGY_TIMEOUT` 預設 900 秒，每個模型各自計算）、agy 錯誤（`agy_error`，含額度用完、伺服器塞車、串流中斷）、無結構化輸出（`empty_output`）、解析或驗證錯誤（`parse_error`、`schema_error`）時，`facet_review.py` 自動改用清單中的下一個模型，不會停下三個角度的審查。審查摘要會寫出每個角度實際用的模型與換模型的原因。
+- 額度用完或逾時的模型，同一個 session 接下來 2 小時的送審會先跳過，不必每次重新等它失敗；逾時加倍重跑時，先前逾時的模型會再試一次。
+- 清單中**每個模型都失敗**才停止迴圈，不再自動重試。若其中有逾時，Claude 會停下來問你：要把逾時加倍、重跑這個角度一次，不經跨模型審查直接交付，還是中止。
+- 若偵測到改檔（`workspace_modified`），**絕不重試、不換模型**，立即停止並告訴你哪些檔案被變動。
 - 計畫疑含機密（`secret_suspected`）或 prompt 超過 30,000 字元（`plan_too_long`）時不送審，由你精簡或排除後重試。
 - 迴圈停止時，Claude 會詢問你要「不經跨模型審查直接交付（摘要標示未審查）」或「中止」。
 
@@ -353,7 +365,7 @@ Claude 不會在沒有你同意的情況下親手寫產品程式碼，也不會 
   - 子代理的工具呼叫同樣受限
   - hook 本身出錯時一律拒絕
 - **rgs-facet 四層防護**：
-  1. **參數由腳本寫死並檢查**：`facet_review.py` 檢查並寫死所有參數，禁止 `--mode`、`--sandbox`、`--add-dir`、`--continue` 等旗標，強制 `--model` 必須以 `gemini-` 開頭。
+  1. **參數由腳本寫死並檢查**：`facet_review.py` 檢查並寫死所有參數，禁止 `--mode`、`--sandbox`、`--add-dir`、`--continue` 等旗標，每個審查模型都必須是以 `gemini-`、`gpt-oss-` 或 `claude-` 開頭的完整 ID（agy 的預設模型可能是 Claude，所以不能省略 `--model`）。寫程式的模型仍然只能是 `gemini-` 開頭。
   2. **空的暫存工作區與 sealed guard**：審查者的工作區是完全獨立的空暫存資料夾，工作區放 PreToolUse hook，sealed guard 只放行 `finish` 與 `wait`，嚴格封鎖讀檔、寫檔、shell 與子代理。
   3. **呼叫前後快照比對**：送審前後比對專案與工作區快照，偵測到任何檔案異動即中止（`workspace_modified`）。
   4. **Claude 端防護**：Claude 端的 `guard_agy.py` 擋下直接執行未經包裝的 `agy`。限制：只在 rgs-facet 安裝於個人層（`~/.claude/skills/`，`install.ps1` 的預設）時生效；它是第二道防線，agy 端的唯讀由 sealed guard 保證。
@@ -454,7 +466,9 @@ python -m unittest discover -s skills/rgs-facet/tests
   - `/rgs-main`：實作、修正輪、遠端前進時 rebase 後推送
   - `/rgs-pr`：在 GitHub 上開 PR、堆疊 PR、審查留言、retarget、draft release
   - batch 與 digest
-- rgs-facet 的實測狀態：安裝、觸發測試（`/rgs-facet` 觸發、自然語句 9/9、誤觸發 0/10）、Plan 模式完整試跑、guard（修正後以 `$HOME` 路徑實測擋下）都已在 Windows 驗證；macOS／Linux 未驗證。
+- rgs-facet 的實測狀態：安裝、觸發測試（`/rgs-facet` 觸發、自然語句 9/9、誤觸發 0/10）、Plan 模式完整試跑、guard（修正後以 `$HOME` 路徑實測擋下）都已在 Windows 驗證；macOS／Linux 未驗證。替補模型（agy 1.5.2，2026-11-07）：第一個模型失敗後換到 `gemini-3.8-flash-high` 並取得有效 verdict、額度用完的判定與跳過紀錄都實測過；`gpt-oss-120b-medium` 與 `claude-opus-5-5-high` 當時額度用完，還沒實測過能否交出審查結果。
+- agy 1.5.9（2026-11-15）：檔案工具改名為 `read_file`／`write_file`／`edit_file`，舊版 guard 會把它們全部擋下（實作寫不進去、審查讀不到檔案），guard 已更新為新舊名稱都認得。用真的 agy 實測過：審查者與實作者的 guard（`gemini-4-hydrogen-high`、`gemini-3.8-flash-high`）、rgs-facet 以 `gemini-4-hydrogen-high` 與 `-xhigh` 取得有效 verdict、`rgs.py` 的 prepare → implement → check（`gemini-4-hydrogen-high` 實作）。修正輪、`land`／`ship`、合併閘門審查、batch 與 digest 還沒在 1.5.9 重跑。
+- agy 1.5.13 與 Gemini 4 Neon（2026-11-21）：檔案工具名稱沒有再變。用真的 agy 實測過：審查者與實作者的 guard（`gemini-4-neon-high`）、rgs-facet 以 `gemini-4-neon-high` 與 `gemini-4-hydrogen-xhigh` 取得有效 verdict（`evidence_found` 全部對得上）。1.5.13 的模型有時把多個 shell 指令串成一條，會被 guard 擋下，模型會改用單一的唯讀指令。`rgs.py` 的完整流程、合併閘門審查、batch 與 digest 還沒在 1.5.13 重跑；Neon 當實作者只跑過最小呼叫。
 - agy 升級後，行為可能改變（工具名稱、hook 格式、輸出欄位）。已驗證的行為記錄在 [`references/agy-cli.md`](skills/rgs-core/references/agy-cli.md)，升級後建議先跑 `doctor.py` 再使用。
 - macOS／Linux 尚未驗證。
 - Gemini 的審查意見只是參考，最後都由 Claude 逐條裁決；最終要不要合併，由你決定。

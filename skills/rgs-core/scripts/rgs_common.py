@@ -478,6 +478,25 @@ FORBIDDEN_FOR_REVIEWER = ('--mode', '--add-dir', '--conversation', '-c', '--cont
 IMPLEMENTER_MODES = ('accept-edits',)
 VALUE_FLAGS = ('-p', '--model', '--output-format', '--print-timeout', '--mode', '--json-schema',
                '--conversation', '--add-dir', '--log-file')
+# Model ID prefixes each role may use (design D-14, D-22). Code is written by Gemini only; reviewers
+# may fall back to the other models agy offers. A full ID is always required: agy's default may be Claude.
+MODEL_PREFIXES = {
+    'implementer': ('gemini-',),
+    'reviewer': ('gemini-', 'gpt-oss-', 'claude-'),
+}
+
+
+def check_model(model, role):
+    """Raise RgsError(code=2) unless model is a full model ID this role may use."""
+    if role not in MODEL_PREFIXES:
+        raise RgsError(f"unknown role: {role!r}", code=2)
+    prefixes = MODEL_PREFIXES[role]
+    if not isinstance(model, str) or not model.startswith(prefixes):
+        raise RgsError(
+            f"invalid model {model!r} for role {role!r}: must start with {' or '.join(prefixes)}"
+            '（agy 的預設模型可能是 Claude，所以必須明確指定完整的模型 ID）',
+            code=2,
+        )
 
 
 def check_agy_args(args, role, model):
@@ -486,13 +505,7 @@ def check_agy_args(args, role, model):
     args is the argument list after the agy executable. The value after a flag in VALUE_FLAGS is
     not a flag: the prompt may well contain text such as "--yolo".
     """
-    if role not in ('implementer', 'reviewer'):
-        raise RgsError(f"unknown role: {role!r}", code=2)
-    if not isinstance(model, str) or not model.startswith('gemini-'):
-        raise RgsError(
-            f"invalid model {model!r}: rgs 只用 Gemini 模型；agy 的預設模型可能是 Claude，所以必須明確指定 gemini-…",
-            code=2,
-        )
+    check_model(model, role)
 
     i = 0
     n = len(args)

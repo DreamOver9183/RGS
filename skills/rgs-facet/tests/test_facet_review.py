@@ -399,7 +399,7 @@ class TestFacetReviewNoAgyInvocations(BaseFacetReviewTest):
             '--plan-file', self.plan_file,
             '--lens', 'logic',
             '--round', '1',
-            '--model', 'claude-3-opus',
+            '--model', 'opus-3',
             '--run-dir', self.run_dir,
             '--repo', self.repo_dir,
         ]
@@ -794,6 +794,166 @@ class TestFacetReviewSessionAndRunDir(BaseFacetReviewTest):
                 self.assertEqual(data['status'], 'usage_error')
                 self.assertIn('invalid session', data['detail'])
                 self.assertEqual(len(self.get_recorded_calls()), 0)
+
+
+CHAIN = ['gemini-4-argon-high', 'gemini-3.8-flash-high', 'gpt-oss-120b-medium', 'claude-opus-5-5-high']
+
+
+class TestFacetReviewModelFallback(BaseFacetReviewTest):
+    """D-22: --models is a fallback chain; a failing model hands over to the next one."""
+
+    def chain_args(self, models=CHAIN, lens='logic', timeout=None):
+        args = ['--plan-file', self.plan_file, '--lens', lens, '--round', '1',
+                '--models', ','.join(models), '--run-dir', self.run_dir, '--repo', self.repo_dir]
+        if timeout is not None:
+            args += ['--timeout', str(timeout)]
+        return args
+
+    def run_chain(self, model_scenarios=None, args=None, structured=VALID_VERDICT):
+        env = {
+            'FAKE_AGY_STRUCTURED': json.dumps(structured),
+            'FAKE_AGY_MODEL_SCENARIOS': ';'.join(f'{m}={s}' for m, s in (model_scenarios or {}).items()),
+        }
+        proc = self.run_review(args or self.chain_args(), scenario='structured', extra_env=env)
+        lines = [line for line in proc.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1, proc.stdout + proc.stderr)
+        return proc, json.loads(lines[0])
+
+    def called_models(self):
+        return [c['argv'][c['argv'].index('--model') + 1] for c in self.get_recorded_calls()]
+
+    def read_skips(self):
+        with open(os.path.join(self.run_dir, 'model-skips.json'), encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_first_model_ok_uses_no_fallback(self):
+        proc, data = self.run_chain()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.called_models(), CHAIN[:1])
+        self.assertEqual(data['status'], 'ok')
+        self.assertEqual(data['models'], CHAIN)
+        self.assertEqual(data['requested_model'], 'gemini-4-argon-high')
+        self.assertEqual(data['reported_model'], 'Fake gemini-4-argon-high')
+        self.assertFalse(data['fallback_used'])
+        self.assertTrue(data['cross_model'])
+        self.assertEqual([a['status'] for a in data['attempts']], ['ok'])
+        self.assertEqual(data['skipped'], [])
+
+    def test_quota_hands_over_to_next_model(self):
+        proc, data = self.run_chain({'gemini-4-argon-high': 'quota'})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.called_models(), CHAIN[:2])
+        self.assertEqual(data['status'], 'ok')
+        self.assertEqual(data['verdict'], 'APPROVED')
+        self.assertEqual(data['requested_model'], 'gemini-3.8-flash-high')
+        self.assertEqual(data['reported_model'], 'Fake gemini-3.8-flash-high')
+        self.assertTrue(data['fallback_used'])
+        self.assertEqual([(a['model'], a['status']) for a in data['attempts']],
+                         [('gemini-4-argon-high', 'agy_error'), ('gemini-3.8-flash-high', 'ok')])
+        self.assertIn('quota', data['attempts'][0]['detail'].lower())
+        # Each attempt keeps its own raw files
+        call_dir = os.path.join(self.run_dir, 'r1-logic')
+        self.assertEqual([a['raw'] for a in data['attempts']], ['agy', 'agy-2'])
+        for name in ('agy.json', 'agy.log', 'agy-2.json', 'agy-2.log'):
+            self.assertTrue(os.path.isfile(os.path.join(call_dir, name)), name)
+        with open(os.path.join(call_dir, 'meta.json'), encoding='utf-8') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['requested_model'], 'gemini-3.8-flash-high')
+        self.assertEqual(len(meta['attempts']), 2)
+        self.assertEqual(meta['models'], CHAIN)
+        self.assertEqual(self.read_skips()['gemini-4-argon-high']['reason'], 'quota')
+
+    def test_timeout_error_and_empty_output_hand_over(self):
+        proc, data = self.run_chain({
+            'gemini-4-argon-high': 'timeout',
+            'gemini-3.8-flash-high': 'error',
+            'gpt-oss-120b-medium': 'no_struct',
+        })
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.called_models(), CHAIN)
+        self.assertEqual([a['status'] for a in data['attempts']],
+                         ['timeout', 'agy_error', 'empty_output', 'ok'])
+        self.assertEqual(data['requested_model'], 'claude-opus-5-5-high')
+        self.assertFalse(data['cross_model'])
+        self.assertEqual(data['verdict'], 'APPROVED')
+
+    def test_schema_error_on_every_model(self):
+        bad = dict(VALID_VERDICT)
+        bad['verdict'] = 'INVALID_CHOICE'
+        proc, data = self.run_chain(structured=bad)
+        self.assertEqual(proc.returncode, 5)
+        self.assertEqual(self.called_models(), CHAIN)
+        self.assertEqual(data['status'], 'schema_error')
+        self.assertIsNone(data['verdict'])
+        self.assertIn('every model failed', data['detail'])
+        self.assertIn('enum', data['detail'])
+
+    def test_every_model_out_of_quota(self):
+        proc, data = self.run_chain({m: 'quota' for m in CHAIN})
+        self.assertEqual(proc.returncode, 3)
+        self.assertEqual(self.called_models(), CHAIN)
+        self.assertEqual(data['status'], 'agy_error')
+        self.assertEqual(data['requested_model'], 'claude-opus-5-5-high')
+        self.assertIn('every model failed', data['detail'])
+
+    def test_workspace_modified_never_hands_over(self):
+        proc, data = self.run_chain({'gemini-4-argon-high': 'ws_write'})
+        self.assertEqual(proc.returncode, 6)
+        self.assertEqual(self.called_models(), CHAIN[:1])
+        self.assertEqual(data['status'], 'workspace_modified')
+        self.assertEqual(data['workspace_new_files'], ['probe.txt'])
+
+    def test_invalid_model_anywhere_in_chain_is_forbidden(self):
+        proc, data = self.run_chain(args=self.chain_args(models=['gemini-4-argon-high', 'opus-5']))
+        self.assertEqual(proc.returncode, 8)
+        self.assertEqual(data['status'], 'forbidden_flag')
+        self.assertIn('opus-5', data['detail'])
+        self.assertEqual(self.get_recorded_calls(), [])
+
+    def test_blank_chain_is_usage_error(self):
+        proc, data = self.run_chain(args=self.chain_args(models=[' ', '']))
+        self.assertEqual(proc.returncode, 10)
+        self.assertEqual(data['status'], 'usage_error')
+        self.assertEqual(self.get_recorded_calls(), [])
+
+    def test_model_out_of_quota_is_skipped_by_later_calls(self):
+        self.run_chain({'gemini-4-argon-high': 'quota'})
+        proc, data = self.run_chain(args=self.chain_args(lens='gaps'))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.called_models(),
+                         ['gemini-4-argon-high', 'gemini-3.8-flash-high', 'gemini-3.8-flash-high'])
+        self.assertEqual(data['skipped'], [{'model': 'gemini-4-argon-high', 'reason': 'quota'}])
+        self.assertEqual(data['requested_model'], 'gemini-3.8-flash-high')
+        self.assertTrue(data['fallback_used'])
+
+    def test_timeout_skip_only_while_timeout_is_not_larger(self):
+        self.run_chain({'gemini-4-argon-high': 'timeout'}, args=self.chain_args(timeout=900))
+        self.assertEqual(self.read_skips()['gemini-4-argon-high']['timeout_s'], 900)
+        _, data = self.run_chain(args=self.chain_args(lens='gaps', timeout=900))
+        self.assertEqual(data['skipped'], [{'model': 'gemini-4-argon-high', 'reason': 'timeout'}])
+        _, data = self.run_chain(args=self.chain_args(lens='verifiability', timeout=1800))
+        self.assertEqual(data['skipped'], [])
+        self.assertEqual(data['requested_model'], 'gemini-4-argon-high')
+        # Success clears the record
+        self.assertNotIn('gemini-4-argon-high', self.read_skips())
+
+    def test_old_skip_record_expires(self):
+        with open(os.path.join(self.run_dir, 'model-skips.json'), 'w', encoding='utf-8') as f:
+            json.dump({'gemini-4-argon-high': {'reason': 'quota', 'at': 0}}, f)
+        _, data = self.run_chain()
+        self.assertEqual(data['skipped'], [])
+        self.assertEqual(self.called_models(), CHAIN[:1])
+
+    def test_when_every_model_is_skipped_the_chain_is_tried_again(self):
+        one = ['gemini-4-argon-high']
+        proc, data = self.run_chain({'gemini-4-argon-high': 'quota'}, args=self.chain_args(models=one))
+        self.assertEqual(proc.returncode, 3)
+        proc, data = self.run_chain(args=self.chain_args(models=one, lens='gaps'))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.called_models(), one + one)
+        self.assertEqual(data['skipped'], [])
+        with open(os.path.join(self.run_dir, 'r1-gaps', 'meta.json'), encoding='utf-8') as f:
+            self.assertTrue(json.load(f)['skips_ignored'])
 
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@
 | 使用方式、安裝、repo 結構 | `README.md`（英文版 `README.en.md`，兩份內容要同步） |
 | 進行中工作的需求、設計、進度 | `docs/rgs/requirements.md`、`docs/rgs/design.md` |
 | 各里程碑規格與審查裁決 | `docs/rgs/specs/`、`docs/rgs/reviews/` |
-| agy 1.4.0 的實測行為（旗標、hook、輸出、逾時） | `skills/rgs-core/references/agy-cli.md` |
+| agy 的實測行為（旗標、hook、工具名稱、輸出、逾時；1.4.0 起各版補充） | `skills/rgs-core/references/agy-cli.md` |
 | 腳本參數與 exit code | `skills/rgs-core/references/scripts.md` |
 | 角色與硬性規則 | `skills/rgs-core/roles.md` |
 | 整理流程時參考的原始素材 | `docs/origins/` |
@@ -72,11 +72,18 @@
 - agy 回報 `status: SUCCESS` 但其實沒完成 → timeout、工具被拒、子代理沒回報時都可能回 SUCCESS → 只看腳本的分類結果、guard 紀錄與實際 diff。
 - `--json-schema` 的結果不能從 `response` 解析 → `response` 是模型自己寫的 JSON 加上 `finish` 工具參數兩段接在一起 → 只讀 `structured_output`。
 - agy hook 沒有執行、agy 以 `invalid UTF-8` 錯誤結束 → Windows 上 hook 以 `cmd /c` 執行，沒有空白的路徑加了引號就會失敗 → 執行檔路徑只在含空白時加引號。
-- 少傳 `--model` 時呼叫的是 Claude → 使用者的 agy 預設模型是 Claude Opus → `--model` 必傳，且必須以 `gemini-` 開頭（`call_agy` 的 `check_agy_args` 會擋下其他模型）。
+- 少傳 `--model` 時呼叫的是 Claude → 使用者的 agy 預設模型是 Claude Opus → `--model` 必傳且是完整 ID；實作只能 `gemini-` 開頭，審查（rgs-facet 替補）可以 `gemini-`、`gpt-oss-`、`claude-` 開頭（`call_agy` 的 `check_agy_args` 依角色檢查）。
+- 使用者說的「GPT-OSS high」不存在 → agy 的 GPT-OSS 只有 `gpt-oss-120b-medium`，`--effort high` 會被拒絕 → 模型名稱先用 `agy models` 確認，再寫進設定。
+- GPT-OSS 與 Claude Opus 同時額度用完、重置時間相同 → 兩者在 agy 可能共用一個額度 → 替補清單的第 3、4 順位可能一起失效，不要指望它們互補。
 - 逾時被強制結束後仍留下程序 → agy 會另外啟動 language server 子程序，只結束 agy 本身不夠 → `call_agy` 以新的程序群組啟動，逾時時終止整個程序樹（`kill_tree`）。
-- rgs-facet 的審查逾時，看起來沒有回應 → Gemini 4 Argon High 從 2026-10-25 起，對同一份 prompt 的思考量變成 3–10 倍（產出速度不變），300 秒必定逾時，同樣設定重試也一樣 → `AGY_TIMEOUT` 900、背景執行、`timeout` 不自動重試；排查時拿同一份 prompt 重跑對照，看 agy 對話紀錄的 `output_tokens`（位置見 `agy-cli.md`）。
+- rgs-facet 的審查逾時，看起來沒有回應 → Gemini 4 Argon High 從 2026-10-25 起，對同一份 prompt 的思考量變成 3–10 倍（產出速度不變），300 秒必定逾時，同樣設定重試也一樣 → `AGY_TIMEOUT` 900、背景執行；逾時改用下一個替補模型，不用同樣設定重試；排查時拿同一份 prompt 重跑對照，看 agy 對話紀錄的 `output_tokens`（位置見 `agy-cli.md`）。
 - 帶 `--json-schema` 的 prompt 寫「不要使用任何工具」→ 結果只能經由 agy 加入的 `finish` 交出，模型有時照字面用文字輸出，agy 再要求呼叫 `finish`，整份結果重產一次 → prompt 明說用 `finish` 交出結果。
-- agy 回 `ERROR`、`The stream was interrupted`，卻有 `structured_output` → 伺服器串流閒置 5 分鐘時 agy 會自動重試，成功後仍回 ERROR → 照 `error` 處理，同模型重試一次。
+- agy 回 `ERROR`、`The stream was interrupted`，卻有 `structured_output` → 伺服器串流閒置 5 分鐘時 agy 會自動重試，成功後仍回 ERROR（1.5.13 的 changelog 說已改回 SUCCESS，未實測）→ 照 `error` 處理；rgs-facet 直接換下一個替補模型。
+- agy 升級後 Gemini 宣稱完成但沒改到檔案、審查者說讀不到檔案 → agy 1.5.9 把檔案工具改名（`read_file`、`write_file`、`edit_file`，路徑參數 `Path`），changelog 沒寫；guard 不認得就全部拒絕，agy 照樣回 SUCCESS → agy 每次升級後，用真的 agy 各跑一次審查者與實作者的最小呼叫，看 `rgs-guard.log` 裡的工具名稱，再把新名稱加進 `guard.py` 的 `READ_TOOLS`／`WRITE_TOOLS` 並補測試；能執行程式、連網或排程的新工具（`run_workflow`、`swarm`、`schedule`、`search_web`）不放行。
+- rgs-facet 的 `evidence_found` 全是 `false` → Gemini 4 Hydrogen 會把多段引用接成一個 `evidence`，逐字比對失敗 → 審查 prompt 要求 `evidence` 只放一段連續的原文；換審查模型後先看一次 `evidence_found` 的比例。
+- 以為 Neon 或 Hydrogen 額度用完時可以換 3.8 Flash → Neon、Hydrogen、3.8 Flash 共用「Gemini Models」額度，Argon 才是另一池 → 替補清單把 `gemini-4-argon-high` 排在 Neon、Hydrogen 之後、Flash 之前。
+- 實測做到一半 agy 版本變了 → agy 會自己在背景升版（2026-11-21 從 1.5.12 變成 1.5.13）→ 以 rgs-facet `meta.json` 的 `agy_version` 為準，版本變了就重跑審查者與實作者的工具實測。
+- 審查者的 `guard_denials` 出現多行 PowerShell 指令 → agy 1.5.13 起模型會把相關的 shell 指令串成一條（含 `$` 變數、`foreach`），guard 只放行單一唯讀指令 → 屬於正常現象，模型被擋後會改用 `Get-ChildItem`、`rg`、`read_file`；不要為此放寬 guard。
 - 審查者從參數推測出主 checkout 的位置 → 只要參數出現主 checkout 的路徑（包括 `--log-file`）就可能洩漏 → 輸出檔先寫系統暫存目錄，agy 結束後再複製到 run 目錄。
 
 ### rgs 流程（開發本 repo 時）

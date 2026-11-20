@@ -34,7 +34,7 @@ The workflow comes from two real projects, an Android app and a RimWorld mod. Th
 | Claude (main conversation) | Clarifies requirements, writes specs and fix notes, reviews Gemini's diff, rules on review findings, maintains the knowledge base | Write product code itself |
 | Gemini (agy) | Implements the spec, applies fix notes | Run shell or git, change files outside the spec, read secret files |
 | agy reviewer | Fresh, read-only conversation that reviews in parallel along four lenses: security, correctness, architecture, spec | Write any file |
-| agy plan reviewer (rgs-facet) | Reviews plans from three lenses (logic, gaps, verifiability) in an empty temporary workspace, returning only structured results (sealed guard) | Write or read any files |
+| agy plan reviewer (rgs-facet) | Reviews plans from three lenses (logic, gaps, verifiability) in an empty temporary workspace, returning only structured results (sealed guard); Gemini first, then the fallback models in order when a call fails | Write or read any files |
 | Claude sub-agents | Run agy, run tests, update docs, commit, open PRs | Fix code; they stop and report on failure |
 
 Why this split? Gemini is cheap and can write code for a long time, but it cannot build or run tests, and it sometimes gets things wrong or goes out of scope. Claude is good at making requirements precise and holding the quality bar. So Claude writes only specs and reviews. Which files Gemini may change is enforced by a hook, not merely requested in a prompt.
@@ -224,10 +224,10 @@ Claude then:
 
 ## Tutorial 3: reviewing plans with /rgs-facet
 
-Best used before starting implementation, when you want another model (Gemini) to rigorously vet your implementation plan.
+Best used before starting implementation, when you want another model (Gemini first) to rigorously vet your implementation plan.
 
 > [!IMPORTANT]
-> **Submission consent and data privacy**: Running a review sends the full plan text to Google (Gemini) via Antigravity CLI. When you explicitly type `/rgs-facet` or ask for a cross-model plan review, that is treated as consent. If Claude automatically loads the skill based on its description, it confirms with you in a single sentence before the first submission: "Will send full plan text to Gemini (Google), okay?".
+> **Submission consent and data privacy**: Running a review sends the full plan text through the Antigravity CLI to Google's Antigravity service, where a model from the fallback list (Gemini, GPT-OSS or Claude) reviews it. When you explicitly type `/rgs-facet` or ask for a cross-model plan review, that is treated as consent. If Claude automatically loads the skill based on its description, it confirms with you in a single sentence before the first submission: "Will send the full plan text through agy to Google's Antigravity for review, okay?".
 
 **1. Start and draft**
 
@@ -237,7 +237,7 @@ Best used before starting implementation, when you want another model (Gemini) t
 
 Claude then:
 1. Enters Plan mode (if not already in it).
-2. Runs a quick environment check: `python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL> --quick`.
+2. Runs a quick environment check: `python -I <core>/scripts/doctor.py --flow facet --models <REVIEWER_MODELS> --quick`.
 3. Reads code and docs (reconnaissance), clarifying ambiguities (asks all questions at once using AskUserQuestion).
 4. Drafts plan v1 in the Plan mode plan file (covering goals, steps, acceptance criteria, proof commands, risks, and assumption list). Ends with an `<!-- facet:appendix -->` marker (appendix contents are automatically stripped and never sent to the reviewer).
 
@@ -248,7 +248,7 @@ Each round reviews sequentially across three lenses, one at a time (not in paral
 - `gaps`: checks missing scenarios, unhandled edge cases, and undefined error handling
 - `verifiability`: checks whether steps are verifiable with concrete proof commands
 
-Each lens takes about 5–8 minutes per run (default model `gemini-4-argon-high`, measured on 2026-10-25; previously about 1–3 minutes), and each run executes in the background. Starting from round 2, the prior round's disposition JSON for that lens is passed in, allowing the reviewer to verify whether previous issues have been resolved.
+Each lens takes about 2 minutes per run (first choice `gemini-4-neon-high`, 106–131 seconds measured on agy 1.5.13 on 2026-11-21; second choice `gemini-4-hydrogen-xhigh`, about 105 seconds), possibly longer when a later fallback model takes over (`gemini-4-argon-high` takes about 5–8 minutes), and each run executes in the background. Starting from round 2, the prior round's disposition JSON for that lens is passed in, allowing the reviewer to verify whether previous issues have been resolved.
 
 **3. Ruling and revision**
 
@@ -265,18 +265,30 @@ Once the review finishes, Claude writes the review summary before the `<!-- face
 
 **Parameter configuration**
 
-Parameters are defined at the top of `skills/rgs-facet/SKILL.md` (`REVIEWER_MODEL`, `MAX_ROUNDS`, `AGY_TIMEOUT`, etc.). Changing the model only requires modifying that one line (default: `gemini-4-argon-high`). After upgrading or changing models, run:
+Parameters are defined at the top of `skills/rgs-facet/SKILL.md` (`REVIEWER_MODELS`, `MAX_ROUNDS`, `AGY_TIMEOUT`, etc.). `REVIEWER_MODELS` is the fallback list, tried in order. The default:
+
+| Order | Model ID | Notes |
+| :-- | :-- | :-- |
+| 1 | `gemini-4-neon-high` | Gemini 4 Neon (High), available from agy 1.5.12 |
+| 2 | `gemini-4-hydrogen-xhigh` | Gemini 4 Hydrogen (XHigh), available from agy 1.5.9; shares the "Gemini Models" quota with Neon, so it is usually exhausted when Neon is |
+| 3 | `gemini-4-argon-high` | Gemini 4 Argon (High); it has its own quota pool |
+| 4 | `gemini-3.8-flash-high` | Gemini 3.8 Flash (High); also counts against the "Gemini Models" quota |
+| 5 | `gpt-oss-120b-medium` | GPT-OSS 120B built into agy; agy offers only medium, no high |
+| 6 | `claude-opus-5-5-high` | Claude Opus 5.5 (High) built into agy; the same family as the Claude that drafts the plan, so **not a cross-model review**, and the summary says so |
+
+To change the models or their order, edit that one line. Every ID must start with `gemini-`, `gpt-oss-` or `claude-` and appear in `agy models`. After upgrading or changing models, run:
 
 ```bash
-python -I <core>/scripts/doctor.py --flow facet --model <REVIEWER_MODEL>
+python -I <core>/scripts/doctor.py --flow facet --models <REVIEWER_MODELS>
 ```
 
 **Failures, timeouts, and modifications**
 
-- Any review status other than `ok` does not count as approved; the model is never automatically switched.
-- Timeouts (`timeout`; `AGY_TIMEOUT` defaults to 900 seconds) are not retried automatically, because rerunning with the same settings almost always times out again. Claude stops and asks whether to rerun that lens once with a doubled timeout, deliver without cross-model review, or abort.
-- On agy errors (`agy_error`), missing structured outputs (`empty_output`), or parsing/validation errors (`parse_error`, `schema_error`), the script retries at most once for the same model; if it fails again, the loop stops.
-- If file modifications are detected (`workspace_modified`), the script **never retries**; it halts immediately and lists the modified files.
+- Any review status other than `ok` does not count as approved.
+- **Automatic fallback**: when a model times out (`timeout`; `AGY_TIMEOUT` defaults to 900 seconds per model), hits an agy error (`agy_error`, including exhausted quota, an overloaded server or an interrupted stream), returns no structured output (`empty_output`), or returns output that fails parsing or validation (`parse_error`, `schema_error`), `facet_review.py` moves on to the next model in the list, so the three-lens review keeps going. The review summary names the model each lens actually used and why earlier ones were skipped.
+- A model that ran out of quota or timed out is skipped by the later reviews of the same session for 2 hours, so you don't wait for it to fail again; a rerun with a doubled timeout tries the timed-out model again.
+- The loop stops only when **every model in the list fails**, with no further automatic retry. If one of them timed out, Claude asks whether to rerun that lens once with a doubled timeout, deliver without cross-model review, or abort.
+- If file modifications are detected (`workspace_modified`), the script **never retries or switches models**; it halts immediately and lists the modified files.
 - If suspected secrets are found (`secret_suspected`) or the prompt exceeds 30,000 characters (`plan_too_long`), the review is not submitted until you trim or remove the problematic content.
 - When the loop halts, Claude asks whether you want to deliver directly without cross-model review (marked as unreviewed in the summary) or abort.
 
@@ -360,7 +372,7 @@ Claude never writes product code itself without your consent, and never force-pu
   - applies the same limits to subagents
   - denies everything if the hook itself fails
 - **rgs-facet four-layer defense**:
-  1. **Script-enforced parameters**: `facet_review.py` validates and locks arguments, banning flags like `--mode`, `--sandbox`, `--add-dir`, `--continue`, and enforcing `--model` starts with `gemini-`.
+  1. **Script-enforced parameters**: `facet_review.py` validates and locks arguments, banning flags like `--mode`, `--sandbox`, `--add-dir`, `--continue`, and requiring every reviewer model to be a full ID starting with `gemini-`, `gpt-oss-` or `claude-` (agy's default model may be Claude, so `--model` is never omitted). Models that write code must still start with `gemini-`.
   2. **Sealed temporary workspace**: The reviewer runs in an isolated, empty temporary directory with a sealed PreToolUse hook allowing only `finish` and `wait`, strictly blocking all tools (reading, writing, shell, subagents).
   3. **Snapshot diff comparison**: Pre- and post-call snapshots of both the repo and workspace; any detected modifications immediately trigger `workspace_modified` and halt.
   4. **Claude-side guard**: PreToolUse hook `guard_agy.py` blocks direct execution of raw `agy` by Claude. Limitation: active only when rgs-facet is installed in user scope (`~/.claude/skills/`, the default of `install.ps1`); this serves as a second line of defense, while read-only safety on the agy side is guaranteed by the sealed guard.
@@ -462,7 +474,9 @@ To adjust the workflow:
   - `/rgs-main`: implementation, fix rounds, and a rebase-then-push after origin moved
   - `/rgs-pr` on GitHub: opening PRs, stacked PRs, review comments, retarget, and a draft release
   - batch and digest
-- `rgs-facet`: installation, trigger tests (`/rgs-facet` trigger, natural phrasing 9/9, false triggers 0/10), end-to-end Plan mode trial runs, and guard (tested and blocking using `$HOME` path after the fix) have all been verified on Windows; macOS / Linux not verified.
+- `rgs-facet`: installation, trigger tests (`/rgs-facet` trigger, natural phrasing 9/9, false triggers 0/10), end-to-end Plan mode trial runs, and guard (tested and blocking using `$HOME` path after the fix) have all been verified on Windows; macOS / Linux not verified. Fallback models (agy 1.5.2, 2026-11-07): handing over from a failed first model to `gemini-3.8-flash-high` with a valid verdict, quota detection and the skip record were tested for real; `gpt-oss-120b-medium` and `claude-opus-5-5-high` were out of quota at the time, so whether they return a valid review has not been tested yet.
+- agy 1.5.9 (2026-11-15): the file tools were renamed to `read_file` / `write_file` / `edit_file`, and the earlier guard denied all of them (the implementer could not write, the reviewer could not read files); the guard now recognises both the old and the new names. Tested with real agy: the reviewer and implementer guards (`gemini-4-hydrogen-high`, `gemini-3.8-flash-high`), `rgs-facet` returning valid verdicts with `gemini-4-hydrogen-high` and `-xhigh`, and `rgs.py` prepare → implement → check with `gemini-4-hydrogen-high` as the implementer. Fix rounds, `land` / `ship`, the merge-gate review, batch and digest have not been rerun on 1.5.9 yet.
+- agy 1.5.13 and Gemini 4 Neon (2026-11-21): the file tool names did not change again. Tested with real agy: the reviewer and implementer guards (`gemini-4-neon-high`), and `rgs-facet` returning valid verdicts with `gemini-4-neon-high` and `gemini-4-hydrogen-xhigh` (every `evidence_found` matched). Models on 1.5.13 sometimes chain several shell commands into one, which the guard denies; the model then falls back to single read-only commands. The full `rgs.py` flow, the merge-gate review, batch and digest have not been rerun on 1.5.13 yet, and Neon as the implementer has only been tried with a minimal call.
 - agy upgrades can change its behaviour: tool names, the hook format, output fields. The verified behaviour is recorded in [`references/agy-cli.md`](skills/rgs-core/references/agy-cli.md); run `doctor.py` after an upgrade.
 - macOS / Linux are not verified yet.
 - The skills' internal documents and the prompt templates sent to Gemini are in Traditional Chinese. Set `language.docs` and `language.commits` to `en` to get English docs, commit messages and review reports in your project.

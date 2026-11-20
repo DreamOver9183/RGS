@@ -86,15 +86,26 @@ class CheckAgyArgsTest(unittest.TestCase):
         rc.check_agy_args(['-p', '--dangerously-skip-permissions'], 'implementer', 'gemini-3.8-flash-high')
 
     def test_model_validation(self):
-        for bad_model in (None, '', 'claude-opus-5-5', 'Gemini-4'):
-            with self.assertRaises(rc.RgsError) as ctx:
-                rc.check_agy_args([], 'reviewer', bad_model)
-            self.assertEqual(ctx.exception.code, 2)
-            if bad_model is not None:
-                self.assertIn(str(bad_model), str(ctx.exception))
+        for role in ('implementer', 'reviewer'):
+            for bad_model in (None, '', 'Gemini-4', 'opus-5-5', 'gpt-4o'):
+                with self.subTest(role=role, model=bad_model):
+                    with self.assertRaises(rc.RgsError) as ctx:
+                        rc.check_agy_args([], role, bad_model)
+                    self.assertEqual(ctx.exception.code, 2)
+                    if bad_model is not None:
+                        self.assertIn(str(bad_model), str(ctx.exception))
+            # Gemini is allowed for every role
+            rc.check_agy_args([], role, 'gemini-3.8-flash-high')
 
-        # Valid model passes
-        rc.check_agy_args([], 'reviewer', 'gemini-3.8-flash-high')
+    def test_reviewer_may_fall_back_to_other_models(self):
+        """D-22: reviewers may use GPT-OSS and Claude through agy; code is still written by Gemini only."""
+        for model in ('gpt-oss-120b-medium', 'claude-opus-5-5-high'):
+            with self.subTest(model=model):
+                rc.check_agy_args([], 'reviewer', model)
+                with self.assertRaises(rc.RgsError) as ctx:
+                    rc.check_agy_args([], 'implementer', model)
+                self.assertEqual(ctx.exception.code, 2)
+                self.assertIn('gemini-', str(ctx.exception))
 
     def test_unknown_role(self):
         with self.assertRaises(rc.RgsError) as ctx:
@@ -162,10 +173,12 @@ class CallAgyTest(unittest.TestCase):
             self.assertTrue(os.path.exists(prefix + ext), ext)
 
     def test_invalid_model_raises_and_does_not_call_agy(self):
-        with self.assertRaises(rc.RgsError) as ctx:
-            rc.call_agy(prompt='hi', cwd=self.tmp.path, model='claude-opus-5-5')
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertIn('claude-opus-5-5', str(ctx.exception))
+        for role, model in (('reviewer', 'opus-5-5'), ('implementer', 'claude-opus-5-5-high')):
+            with self.subTest(role=role, model=model):
+                with self.assertRaises(rc.RgsError) as ctx:
+                    rc.call_agy(prompt='hi', cwd=self.tmp.path, model=model, role=role)
+                self.assertEqual(ctx.exception.code, 2)
+                self.assertIn(model, str(ctx.exception))
         calls_dir = os.path.join(self.tmp.path, 'state', 'calls')
         self.assertTrue(not os.path.exists(calls_dir) or len(os.listdir(calls_dir)) == 0)
 

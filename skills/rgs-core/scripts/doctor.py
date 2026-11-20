@@ -2,10 +2,11 @@
 
 Usage:
     python -I doctor.py [--quick] [--flow main|pr] [--init] [--json]
-    python -I doctor.py --flow facet --model <M> [--quick] [--json]
+    python -I doctor.py --flow facet --models <M1,M2,...> [--quick] [--json]
 
 --quick skips the slower network checks (agy models list, quota table, gh auth).
---flow facet checks python, agy, model and quota without requiring a git repo.
+--flow facet checks python, agy, the reviewer models (--model is an alias of --models) and quota
+without requiring a git repo.
 --init writes .rgs/profile.json from what it detects (never overwrites) and .rgs/.gitignore,
 and prints the Claude Code permission rules the user can add themselves.
 Exit code 0 = no failures (warnings allowed), 1 = at least one failure.
@@ -100,7 +101,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--quick', action='store_true')
     ap.add_argument('--flow', choices=['main', 'pr', 'facet'], default='main')
-    ap.add_argument('--model', default=None)
+    ap.add_argument('--models', '--model', dest='models', default=None)
     ap.add_argument('--init', action='store_true')
     ap.add_argument('--json', action='store_true')
     args = ap.parse_args()
@@ -117,29 +118,40 @@ def main():
         code, out = quiet([*agy, '--version'], timeout=30)
         ver = version_tuple(out)
         status = 'ok' if ver and ver >= MIN_AGY else 'warn'
-        add('agy', status, f'{out.strip()[:40]} ({agy[-1]})' + ('' if status == 'ok' else '; rgs was verified on 1.4.0'))
+        add('agy', status, f'{out.strip()[:40]} ({agy[-1]})' + ('' if status == 'ok' else '; rgs was verified on 1.4.0, 1.5.9 and 1.5.13'))
     except rc.RgsError as e:
         agy = None
         add('agy', 'fail', str(e))
 
     if args.flow == 'facet':
-        if not args.model:
-            add('model', 'fail', '--model <M> is required for --flow facet')
-        elif not args.model.startswith('gemini-'):
-            add('model', 'fail', f"invalid model {args.model!r}: must start with 'gemini-' (agy default may be Claude)")
+        models = [m.strip() for m in (args.models or '').split(',') if m.strip()]
+        invalid = []
+        for m in models:
+            try:
+                rc.check_model(m, 'reviewer')
+            except rc.RgsError:
+                invalid.append(m)
+        if not models:
+            add('model', 'fail', '--models <M1,M2,...> is required for --flow facet')
+        elif invalid:
+            add('model', 'fail', f"invalid model {', '.join(invalid)}: must start with "
+                                 f"{' or '.join(rc.MODEL_PREFIXES['reviewer'])} (agy default may be Claude)")
         else:
-            add('model', 'ok', args.model)
+            add('model', 'ok', ', '.join(models))
 
-        if agy and args.model:
+        if agy and models:
             code, out = quiet([*agy, 'models'], timeout=60)
             if code != 0:
                 add('agy models', 'fail', f'agy models failed ({code}): {out.strip()[:200]}')
             else:
                 model_ids = [line.split()[0] for line in out.strip().splitlines() if line.split()]
-                if args.model in model_ids:
-                    add('agy models', 'ok', args.model)
+                absent = [m for m in models if m not in model_ids]
+                if not absent:
+                    add('agy models', 'ok', ', '.join(models))
                 else:
-                    add('agy models', 'fail', f'not listed: {args.model}')
+                    # A missing fallback model only shortens the chain; no usable model at all is a failure.
+                    add('agy models', 'fail' if len(absent) == len(models) else 'warn',
+                        f'not listed: {", ".join(absent)}')
 
         if not args.quick and agy:
             code, out = quiet([*agy, '-p', '/usage'], timeout=90, env=dict(os.environ, MSYS_NO_PATHCONV='1'))

@@ -16,7 +16,12 @@ agy runs every hook command with the working directory set to the folder that ho
 The sealed role allows only finish (used to deliver --json-schema results) and wait;
 the model cannot read, list, run commands or start subagents.
 
-agy 1.4.0 has no separate list or search tool; the model lists and searches files with
+Tool names differ between agy versions; both sets are recognised (see references/agy-cli.md):
+agy 1.4.x uses view_file / write_to_file / replace_file_content (path in AbsolutePath / TargetFile),
+agy 1.5.9 uses read_file / write_file / edit_file (path in Path). Tools added later
+(run_workflow, swarm, schedule, search_web, ...) are unknown here and therefore denied.
+
+agy has no separate list or search tool; the model lists and searches files with
 run_command (PowerShell). With read_commands on, a command is allowed only when every pipeline
 segment starts with a known read-only verb, it has no shell metacharacters that could chain or
 redirect, and every absolute path in it stays inside the roots and outside deny_read.
@@ -40,10 +45,14 @@ LOG_FILE = os.path.join(HERE, 'rgs-guard.log')
 READ_TOOLS = {
     'view_file', 'view_file_outline', 'view_code_item', 'view_content_chunk',
     'list_dir', 'grep_search', 'find_by_name', 'codebase_search',
+    'read_file',  # agy 1.5.9
 }
 READ_PREFIXES = ('view_', 'list_', 'find_', 'grep_')
 # Tools that write files. Only the implementer may use them, and only on write_allow paths.
-WRITE_TOOLS = {'write_to_file', 'replace_file_content', 'multi_replace_file_content'}
+WRITE_TOOLS = {
+    'write_to_file', 'replace_file_content', 'multi_replace_file_content',
+    'write_file', 'edit_file',  # agy 1.5.9
+}
 # Tools that neither read the disk nor change it.
 NEUTRAL_TOOLS = {'finish', 'wait', 'task_boundary', 'notify_user', 'invoke_subagent', 'send_message',
                  'manage_subagents'}
